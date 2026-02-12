@@ -1,0 +1,292 @@
+"""
+Roll out a trained connectome RNN policy from a saved checkpoint.
+
+This mirrors the architecture and preprocessing used during DAgger training
+in `train_connectome_rnn_dagger.py`, so checkpoints from that script can be
+evaluated directly.
+"""
+
+from __future__ import annotations
+
+import os
+import time
+import csv
+import numpy as np
+from typing import Optional, Tuple, List
+import pandas as pd
+
+import torch
+
+from agents.connectome_rnn_agent import ConnectomeAgent
+from agents.teacher_analytic_agent import PlannerAnalyticTeacher
+from core.utils import get_device
+from environment.mujoco_two_cam_env_random_obstacles import MuJoCoTwoCamEnv
+from train_connectome_rnn_dagger import (
+    ARENA_HALF_EXTENT,
+    DTYPE,
+    EDGE_PATH,
+    ENV_HEIGHT,
+    ENV_WIDTH,
+    INPUT_SCALE_INIT,
+    MAX_EPISODE_STEPS,
+    N_OBSTACLES,
+    PHOTORECEPTOR_LEFT_CSV,
+    PHOTORECEPTOR_RIGHT_CSV,
+    OLFACTORY_LEFT_CSV,
+    OLFACTORY_RIGHT_CSV,
+    TACTILE_LEFT_CSV,
+    TACTILE_RIGHT_CSV,
+    DESCENDING_NEURONS_CSV,
+    CELL_TYPES_CSV,
+    WIND_SENSING_CSV, # NEW
+    TARGET_RHO,
+    LEAK_ALPHA,
+    ACTIVATION,
+    BATCH_CHUNK,
+    ROW_TILE_SIZE,
+)
+from train_connectome_rnn_rl import CTRL_PENALTY, TIME_PENALTY, PROG_SCALE, GOAL_BONUS, CONTACT_PENALTY
+from core.utils import build_connectome_cell, obs_to_torch
+
+END_ON_COLLISION = False
+MAX_EPISODE_STEPS = 600
+
+
+def _make_env(render_mode: Optional[str], n_obstacles: int) -> MuJoCoTwoCamEnv:
+    return MuJoCoTwoCamEnv(
+        width=ENV_WIDTH,
+        height=ENV_HEIGHT,
+        max_episode_steps=MAX_EPISODE_STEPS,
+        n_obstacles=n_obstacles,
+        arena_half_extent=ARENA_HALF_EXTENT,
+        render_mode=render_mode,
+        end_on_collision = END_ON_COLLISION,
+        goal_bonus=0,
+        contact_penalty=0,
+        time_penalty=TIME_PENALTY,
+        prog_scale=PROG_SCALE,
+        ctrl_penalty=CTRL_PENALTY,
+    )
+
+
+def _load_agent(checkpoint_path: str, device: torch.device, dtype: torch.dtype) -> ConnectomeAgent:
+    if not os.path.isfile(checkpoint_path):
+        raise FileNotFoundError(f"Checkpoint not found: {checkpoint_path}")
+
+    cell, pr_positions, input_splits, id2idx = build_connectome_cell(
+        edge_path=EDGE_PATH,
+        device=device,
+        dtype=dtype,
+        photoreceptor_left_csv=PHOTORECEPTOR_LEFT_CSV,
+        photoreceptor_right_csv=PHOTORECEPTOR_RIGHT_CSV,
+        olfactory_left_csv=OLFACTORY_LEFT_CSV,
+        olfactory_right_csv=OLFACTORY_RIGHT_CSV,
+        tactile_left_csv=TACTILE_LEFT_CSV,
+        tactile_right_csv=TACTILE_RIGHT_CSV,
+        descending_neurons_csv=DESCENDING_NEURONS_CSV,
+        cell_types_csv=CELL_TYPES_CSV,
+        wind_sensing_csv=WIND_SENSING_CSV,
+        target_rho=TARGET_RHO,
+        leak_alpha=LEAK_ALPHA,
+        activation=ACTIVATION,
+        train_rnn_weights=False,
+        train_readout_head=True,
+        batch_chunk=BATCH_CHUNK,
+        row_tile_size=ROW_TILE_SIZE,
+    )
+    agent = ConnectomeAgent(
+        cell,
+        photoreceptor_positions=pr_positions,
+        input_splits=input_splits,
+        dtype=dtype,
+        input_scale_init=INPUT_SCALE_INIT,
+    ).to(device)
+
+    state_dict = torch.load(checkpoint_path, map_location=device)
+    agent.load_state_dict(state_dict)
+    agent.eval()
+    return agent, id2idx
+
+
+def load_neuron_indices(csv_path: str, id2idx: dict) -> List[int]:
+    """Load neuron indices from a CSV file containing root_ids."""
+    if not csv_path or not os.path.exists(csv_path):
+        return []
+    
+    try:
+        df = pd.read_csv(csv_path)
+        if "root_id" not in df.columns:
+            print(f"[warn] {csv_path} missing 'root_id' column.")
+            return []
+        
+        ids = df["root_id"].astype(int).tolist()
+        indices = [id2idx[nid] for nid in ids if nid in id2idx]
+        print(f"[io] Loaded {len(indices)} neuron indices from {csv_path} (out of {len(ids)} requested).")
+        return indices
+    except Exception as e:
+        print(f"[error] Failed to load neuron indices from {csv_path}: {e}")
+        return []
+
+
+
+@torch.no_grad()
+def rollout_episode(
+    env: MuJoCoTwoCamEnv,
+    agent: ConnectomeAgent,
+    teacher: PlannerAnalyticTeacher,
+    device: torch.device,
+    dtype: torch.dtype,
+    render: bool,
+    show_path: bool,
+    episode_idx: int,
+    save_dir: str,
+    record_indices: Optional[List[int]] = None,
+    overwrite_indices: Optional[List[int]] = None,
+    overwrite_value: float = 0.0,
+    overwrite_interval: int = 1,
+    overwrite_steps: int = 1,
+) -> Tuple[float, int, bool, bool]:
+    if record_indices is None:
+        record_indices = []
+    if overwrite_indices is None:
+        overwrite_indices = []
+    
+    obs, _ = env.reset()
+    
+    # --- Record Obstacles ---
+    # env._obstacle_xy is (N, 2)
+    # We only care about the active obstacles
+    active_obstacles = env._obstacle_xy[:env.n_obstacles]
+    obs_file = os.path.join(save_dir, f"obstacles_{episode_idx}.txt")
+    np.savetxt(obs_file, active_obstacles, fmt="%.4f", delimiter=",")
+    # ------------------------
+
+    agent.reset_vision_state()
+    teacher.reset()
+    h = torch.zeros(1, agent.cell.N, device=device, dtype=dtype)
+    done = False
+    trunc = False
+    ep_ret = 0.0
+    steps = 0
+    
+    trajectory = []
+    recorded_activity = []
+
+    while not (done or trunc):
+        # Update teacher path visualization (side effect on env)
+        if show_path:
+            _ = teacher.act(env)
+
+        obs_t = obs_to_torch(obs, device=device, dtype=dtype)
+        h, action = agent.step(h, obs_t)
+        
+        # --- Overwrite Neuron Activity AFTER step to clamp values ---
+        if overwrite_indices and (steps % overwrite_interval < overwrite_steps):
+            h[:, overwrite_indices] = overwrite_value
+        # ------------------------------------------------------------
+        
+        # Now h is the NEW state (with overwrites applied). Record it.
+        if record_indices:
+            with torch.no_grad():
+                act = h[:, record_indices].cpu().numpy().flatten()
+                recorded_activity.append(act)
+
+        action_np = action.squeeze(0).cpu().numpy()
+
+        # --- Record Robot Position and Collision ---
+        robot_pos = env._base_xy()
+        collision = obs["sensors"]["collision"]  # Get collision flag from current obs
+        trajectory.append([robot_pos[0], robot_pos[1], int(collision)])
+        # --------------------------------------------
+
+        obs, reward, done, trunc, _ = env.step(action_np)
+        ep_ret += float(reward)
+        steps += 1
+
+        if render:
+            env.render()
+            
+    # --- Save Trajectory ---
+    traj_file = os.path.join(save_dir, f"trajectory_{episode_idx}.csv")
+    with open(traj_file, "w", newline="") as f:
+        writer = csv.writer(f)
+        writer.writerow(["step", "x", "y", "collision"])
+        for i, row in enumerate(trajectory):
+            writer.writerow([i, row[0], row[1], row[2]])
+    
+    # --- Save Activity ---
+    if recorded_activity:
+        act_file = os.path.join(save_dir, f"activity_{episode_idx}.csv")
+        # Save as CSV: header could be indices, but just raw valid_values
+        # Or no header. Let's use numpy for speed
+        np.savetxt(act_file, np.array(recorded_activity), fmt="%.6f", delimiter=",")
+    # -----------------------
+
+    return ep_ret, steps, bool(done), bool(trunc)
+
+
+
+def main():
+    device = get_device()
+    dtype = DTYPE
+    
+    # --- Configuration ---
+    checkpoint = "checkpoints/connectome_rnn_dagger_princeton_random.pt"
+    episodes = 100
+    render_mode = "human" # Set to None for faster headless run
+    
+    # Neuron Manipulation Config
+    record_csv = None #"connectomes/drosophila adult connectome/moonwalker_descending_neurons.csv"       # e.g., "neurons_to_record.csv"
+    overwrite_csv = None #"connectomes/drosophila adult connectome/moonwalker_descending_neurons.csv"    # e.g., "neurons_to_overwrite.csv"
+    overwrite_val = 0.8
+    overwrite_int = 150
+    overwrite_steps = 80
+    # ---------------------
+
+    env = _make_env(render_mode=render_mode, n_obstacles=20)
+    agent, id2idx = _load_agent(checkpoint, device=device, dtype=dtype)
+
+    # Load indices
+    record_indices = load_neuron_indices(record_csv, id2idx)
+    overwrite_indices = load_neuron_indices(overwrite_csv, id2idx)
+    
+    if overwrite_indices:
+        print(f"[main] Overwriting {len(overwrite_indices)} neurons with {overwrite_val} every {overwrite_int} steps.")
+
+    teacher = PlannerAnalyticTeacher(
+        arena_half_extent=env.arena,
+        cell_size=0.1,
+        robot_radius=0.2,
+        safety_margin=0.01,
+        obstacle_box_half=(0.4, 0.4),
+        k_nearest_obs=5,
+        device="cpu",
+    )
+
+    # Prepare data directory
+    timestr = time.strftime("%Y%m%d-%H%M%S")
+    save_dir = os.path.join("eval_data", f"run_{timestr}")
+    os.makedirs(save_dir, exist_ok=True)
+    print(f"[main] Saving episode data to: {save_dir}")
+
+    try:
+        for ep in range(1, episodes + 1):
+            ret, steps, done, trunc = rollout_episode(
+                env, agent, teacher, device=device, dtype=dtype, 
+                render=render_mode == "human", show_path=False,
+                episode_idx=ep, save_dir=save_dir,
+                record_indices=record_indices,
+                overwrite_indices=overwrite_indices,
+                overwrite_value=overwrite_val,
+                overwrite_interval=overwrite_int,
+                overwrite_steps=overwrite_steps,
+            )
+            print(
+                f"[eval] episode {ep}/{episodes} | return={ret:.3f} | steps={steps} | done={done} | trunc={trunc}"
+            )
+    finally:
+        env.close()
+
+
+if __name__ == "__main__":
+    main()

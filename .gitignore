@@ -1,0 +1,31 @@
+__pycache__/
+*.py[cod]
+.venv/
+build/
+dist/
+*.log
+
+# Model checkpoints
+*.pt
+*.pth
+
+# Data files
+*.parquet
+*.csv
+*.jsonl
+
+# Specific to MuJoCo/Robotics
+*.log
+*.out
+
+# Folders
+backups/
+checkpoints/
+connectomes/
+eval_data/
+loss/
+
+# references
+*.pdf
+*.png
+*.jpg

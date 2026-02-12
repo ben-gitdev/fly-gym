@@ -1,0 +1,42 @@
+
+TODO:
+sensors ablation tests: smell, wind direction, one eye, both eyes, tactile
+online learning
+moonwalk neuron activity
+performance comparation to random network
+
+
+############2026-01-27##############
+
+MAJOR CHANGES:
+
+1. Ditched R1-6 input, as locatioins of R1-6 cells are hard to define correctly (even though can be inferred from L1-3 that connect to them, see raw connectomes\flywire_fafb_v783_20251107\infer_R1-6_position_from_L1-3.py). The left eye of the drosophila FAFB v783 connectome is half blind, i.e., R1-6 neurons of the bottom half of this eye are not connected to anything (see photoreceptors_pos_left_inferred.csv). SOLUTION: mujoco camera image -> edge filtering simulating L1-2, smoothing simulating L3 -> L1-3 input
+
+2. Fixed broken gradient flow to wind mlp and vison input because those were placed in rollout and collection code. Vision is now sampled in rollout and collection code using L1-3 visual column grid, but edge filtering and smoothing are moved out.
+
+3. Added customized sparse mm for backward calculation for memory efficient gradient calculation. Added gradient accumulation to support larger batch size. Now 32 GB of VRAM is enough for 64*4 batch size with T_BURN=50 and T_UNROLL=80.
+
+4. Added training data balancing. Implemented 4 types of training data: start, straight, turn, collision, pre-collision. Ratio of each category in each training batch is configurable.
+
+5. Changed teacher path finding algorithm to vector field histogram star (VFH*). Locally deterministic algorithm better resresents fly behavior. 
+
+6. Increased episodes per iter to 200 to generate large datasets for training.
+
+7. Added wind direciton sensors
+
+MINOR CHANGES:
+
+6. Increased T_UNROLL to 80
+
+7. Removed box and ball obstacles, leaving only cylinder obstacles. Doubled the height of the obstacles.
+
+8. Increased the size of the goal 1.5x, changed color to white.
+
+TRAINING RESULT:
+
+Robot starts good, goes toward goal, sometimes shows obstacle avoidance behavior, while othertimes collides into obstacle.
+
+############2026-01-30##############
+1. added floor checker board pattern
+2. changed connectome agent action velocity output from tanh() to 3xtanh() to enable robot to move faster
+3. changed recovery steps total from 85 to 55. 

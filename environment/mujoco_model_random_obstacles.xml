@@ -1,0 +1,215 @@
+<mujoco model="two_wheel_two_cams">
+  <option timestep="0.002" gravity="0 0 -9.81" />
+  <size nstack="300000" nuser_sensor="0" />
+  <visual>
+    <map znear="0.001" />
+  </visual>
+  <asset>
+    <texture name="texplane" type="2d" builtin="checker" width="128" height="128" rgb1="0.8 0.8 0.8" rgb2="0.9 0.9 0.9" />
+    <texture name="texwall" type="2d" builtin="checker" width="64" height="64" rgb1="0.75 0.75 0.82" rgb2="0.55 0.55 0.62" />
+    <texture name="texobs" type="2d" builtin="checker" width="32" height="32" rgb1="0.7 0.2 0.2" rgb2="0.9 0.4 0.4" random="0.3" />
+    <material name="matplane" texture="texplane" texrepeat="6 6" reflectance="0.0" texuniform="true" rgba="0.2 0.2 0.2 1" specular="0.05" />
+    <material name="matgoal" rgba="0.2 0.85 0.2 1" />
+    <material name="matwall" texture="texwall" texrepeat="2 1" texuniform="true" rgba="0.5 0.5 0.5 1" specular="0.05" />
+    <material name="matrobot" rgba="0.2 0.4 0.8 1" />
+    <material name="matwheel" rgba="0.1 0.1 0.1 1" />
+    <material name="matobs" texture="texobs" texrepeat="3 3" texuniform="true" rgba="0.85 0.2 0.2 1" specular="0.05" />
+  </asset>
+  <worldbody>
+    <light name="light_top" pos="0 0 6" dir="0 0 -1" diffuse="0.3 0.3 0.3" specular="0.0 0.0 0.0" ambient="0.6 0.6 0.6" directional="true" castshadow="false"/>
+    <light name="light_west" pos="-4 0 3" dir="1 0 -0.4" diffuse="0.1 0.1 0.1" specular="0.0 0.0 0.0" ambient="0.3 0.3 0.3" directional="true" castshadow="false"/>
+    <light name="light_east" pos="4 0 3" dir="-1 0 -0.4" diffuse="0.1 0.1 0.1" specular="0.0 0.0 0.0" ambient="0.3 0.3 0.3" directional="true" castshadow="false"/>
+    <geom name="floor" type="plane" size="20 20 0.1" pos="0 0 0" material="matplane" condim="3" friction="1.0 0.005 0.0001" contype="1" conaffinity="7" />
+    <geom name="wall_n" type="box" size="7 0.05 0.3" pos="0 7 0.3" material="matwall" contype="1" conaffinity="7" />
+    <geom name="wall_s" type="box" size="7 0.05 0.3" pos="0 -7 0.3" material="matwall" contype="1" conaffinity="7" />
+    <geom name="wall_e" type="box" size="0.05 7 0.3" pos="7 0 0.3" material="matwall" contype="1" conaffinity="7" />
+    <geom name="wall_w" type="box" size="0.05 7 0.3" pos="-7 0 0.3" material="matwall" contype="1" conaffinity="7" />
+    <body name="obstacle0_body" pos="0 0 0.8">
+      <inertial pos="0 0 0" mass="30" diaginertia="2 2 2" />
+      <joint name="obstacle0_x" type="slide" axis="1 0 0" limited="true" range="-1e-6 1e-6" />
+      <joint name="obstacle0_y" type="slide" axis="0 1 0" limited="true" range="-1e-6 1e-6" />
+      <joint name="obstacle0_z" type="slide" axis="0 0 1" limited="true" range="-1e-6 1e-6" />
+      <geom name="obstacle0" type="cylinder" size="0.4 0.8 0" pos="0 0 0" friction="8.0 0.5 0.1" material="matobs" contype="1" conaffinity="7" solref="0.001 1" solimp="0.98 0.995 0.0001" />
+    </body>
+    <body name="obstacle1_body" pos="0 0 0.8">
+      <inertial pos="0 0 0" mass="30" diaginertia="2 2 2" />
+      <joint name="obstacle1_x" type="slide" axis="1 0 0" limited="true" range="-1e-6 1e-6" />
+      <joint name="obstacle1_y" type="slide" axis="0 1 0" limited="true" range="-1e-6 1e-6" />
+      <joint name="obstacle1_z" type="slide" axis="0 0 1" limited="true" range="-1e-6 1e-6" />
+      <geom name="obstacle1" type="cylinder" size="0.4 0.8 0" pos="0 0 0" friction="8.0 0.5 0.1" material="matobs" contype="1" conaffinity="7" solref="0.001 1" solimp="0.98 0.995 0.0001" />
+    </body>
+    <body name="obstacle2_body" pos="0 0 0.6">
+      <inertial pos="0 0 0" mass="30" diaginertia="2 2 2" />
+      <joint name="obstacle2_x" type="slide" axis="1 0 0" limited="true" range="-1e-6 1e-6" />
+      <joint name="obstacle2_y" type="slide" axis="0 1 0" limited="true" range="-1e-6 1e-6" />
+      <joint name="obstacle2_z" type="slide" axis="0 0 1" limited="true" range="-1e-6 1e-6" />
+      <geom name="obstacle2" type="cylinder" size="0.4 0.8 0" pos="0 0 0" friction="8.0 0.5 0.1" material="matobs" contype="1" conaffinity="7" solref="0.001 1" solimp="0.98 0.995 0.0001" />
+    </body>
+    <body name="obstacle3_body" pos="0 0 0.8">
+      <inertial pos="0 0 0" mass="30" diaginertia="2 2 2" />
+      <joint name="obstacle3_x" type="slide" axis="1 0 0" limited="true" range="-1e-6 1e-6" />
+      <joint name="obstacle3_y" type="slide" axis="0 1 0" limited="true" range="-1e-6 1e-6" />
+      <joint name="obstacle3_z" type="slide" axis="0 0 1" limited="true" range="-1e-6 1e-6" />
+      <geom name="obstacle3" type="cylinder" size="0.4 0.8 0" pos="0 0 0" friction="8.0 0.5 0.1" material="matobs" contype="1" conaffinity="7" solref="0.001 1" solimp="0.98 0.995 0.0001" />
+    </body>
+    <body name="obstacle4_body" pos="0 0 0.8">
+      <inertial pos="0 0 0" mass="30" diaginertia="2 2 2" />
+      <joint name="obstacle4_x" type="slide" axis="1 0 0" limited="true" range="-1e-6 1e-6" />
+      <joint name="obstacle4_y" type="slide" axis="0 1 0" limited="true" range="-1e-6 1e-6" />
+      <joint name="obstacle4_z" type="slide" axis="0 0 1" limited="true" range="-1e-6 1e-6" />
+      <geom name="obstacle4" type="cylinder" size="0.4 0.8 0" pos="0 0 0" friction="8.0 0.5 0.1" material="matobs" contype="1" conaffinity="7" solref="0.001 1" solimp="0.98 0.995 0.0001" />
+    </body>
+    <body name="obstacle5_body" pos="0 0 0.8">
+      <inertial pos="0 0 0" mass="30" diaginertia="2 2 2" />
+      <joint name="obstacle5_x" type="slide" axis="1 0 0" limited="true" range="-1e-6 1e-6" />
+      <joint name="obstacle5_y" type="slide" axis="0 1 0" limited="true" range="-1e-6 1e-6" />
+      <joint name="obstacle5_z" type="slide" axis="0 0 1" limited="true" range="-1e-6 1e-6" />
+      <geom name="obstacle5" type="cylinder" size="0.4 0.8 0" pos="0 0 0" friction="8.0 0.5 0.1" material="matobs" contype="1" conaffinity="7" solref="0.001 1" solimp="0.98 0.995 0.0001" />
+    </body>
+    <body name="obstacle6_body" pos="0 0 0.8">
+      <inertial pos="0 0 0" mass="30" diaginertia="2 2 2" />
+      <joint name="obstacle6_x" type="slide" axis="1 0 0" limited="true" range="-1e-6 1e-6" />
+      <joint name="obstacle6_y" type="slide" axis="0 1 0" limited="true" range="-1e-6 1e-6" />
+      <joint name="obstacle6_z" type="slide" axis="0 0 1" limited="true" range="-1e-6 1e-6" />
+      <geom name="obstacle6" type="cylinder" size="0.4 0.8 0" pos="0 0 0" friction="8.0 0.5 0.1" material="matobs" contype="1" conaffinity="7" solref="0.001 1" solimp="0.98 0.995 0.0001" />
+    </body>
+    <body name="obstacle7_body" pos="0 0 0.6">
+      <inertial pos="0 0 0" mass="30" diaginertia="2 2 2" />
+      <joint name="obstacle7_x" type="slide" axis="1 0 0" limited="true" range="-1e-6 1e-6" />
+      <joint name="obstacle7_y" type="slide" axis="0 1 0" limited="true" range="-1e-6 1e-6" />
+      <joint name="obstacle7_z" type="slide" axis="0 0 1" limited="true" range="-1e-6 1e-6" />
+      <geom name="obstacle7" type="cylinder" size="0.4 0.8 0" pos="0 0 0" friction="8.0 0.5 0.1" material="matobs" contype="1" conaffinity="7" solref="0.001 1" solimp="0.98 0.995 0.0001" />
+    </body>
+    <body name="obstacle8_body" pos="0 0 0.8">
+      <inertial pos="0 0 0" mass="30" diaginertia="2 2 2" />
+      <joint name="obstacle8_x" type="slide" axis="1 0 0" limited="true" range="-1e-6 1e-6" />
+      <joint name="obstacle8_y" type="slide" axis="0 1 0" limited="true" range="-1e-6 1e-6" />
+      <joint name="obstacle8_z" type="slide" axis="0 0 1" limited="true" range="-1e-6 1e-6" />
+      <geom name="obstacle8" type="cylinder" size="0.4 0.8 0" pos="0 0 0" friction="8.0 0.5 0.1" material="matobs" contype="1" conaffinity="7" solref="0.001 1" solimp="0.98 0.995 0.0001" />
+    </body>
+    <body name="obstacle9_body" pos="0 0 0.8">
+      <inertial pos="0 0 0" mass="30" diaginertia="2 2 2" />
+      <joint name="obstacle9_x" type="slide" axis="1 0 0" limited="true" range="-1e-6 1e-6" />
+      <joint name="obstacle9_y" type="slide" axis="0 1 0" limited="true" range="-1e-6 1e-6" />
+      <joint name="obstacle9_z" type="slide" axis="0 0 1" limited="true" range="-1e-6 1e-6" />
+      <geom name="obstacle9" type="cylinder" size="0.4 0.8 0" pos="0 0 0" friction="8.0 0.5 0.1" material="matobs" contype="1" conaffinity="7" solref="0.001 1" solimp="0.98 0.995 0.0001" />
+    </body>
+    <body name="obstacle10_body" pos="0 0 0.8">
+      <inertial pos="0 0 0" mass="30" diaginertia="2 2 2" />
+      <joint name="obstacle10_x" type="slide" axis="1 0 0" limited="true" range="-1e-6 1e-6" />
+      <joint name="obstacle10_y" type="slide" axis="0 1 0" limited="true" range="-1e-6 1e-6" />
+      <joint name="obstacle10_z" type="slide" axis="0 0 1" limited="true" range="-1e-6 1e-6" />
+      <geom name="obstacle10" type="cylinder" size="0.4 0.8 0" pos="0 0 0" friction="8.0 0.5 0.1" material="matobs" contype="1" conaffinity="7" solref="0.001 1" solimp="0.98 0.995 0.0001" />
+    </body>
+    <body name="obstacle11_body" pos="0 0 0.8">
+      <inertial pos="0 0 0" mass="30" diaginertia="2 2 2" />
+      <joint name="obstacle11_x" type="slide" axis="1 0 0" limited="true" range="-1e-6 1e-6" />
+      <joint name="obstacle11_y" type="slide" axis="0 1 0" limited="true" range="-1e-6 1e-6" />
+      <joint name="obstacle11_z" type="slide" axis="0 0 1" limited="true" range="-1e-6 1e-6" />
+      <geom name="obstacle11" type="cylinder" size="0.4 0.8 0" pos="0 0 0" friction="8.0 0.5 0.1" material="matobs" contype="1" conaffinity="7" solref="0.001 1" solimp="0.98 0.995 0.0001" />
+    </body>
+    <body name="obstacle12_body" pos="0 0 0.6">
+      <inertial pos="0 0 0" mass="30" diaginertia="2 2 2" />
+      <joint name="obstacle12_x" type="slide" axis="1 0 0" limited="true" range="-1e-6 1e-6" />
+      <joint name="obstacle12_y" type="slide" axis="0 1 0" limited="true" range="-1e-6 1e-6" />
+      <joint name="obstacle12_z" type="slide" axis="0 0 1" limited="true" range="-1e-6 1e-6" />
+      <geom name="obstacle12" type="cylinder" size="0.4 0.8 0" pos="0 0 0" friction="8.0 0.5 0.1" material="matobs" contype="1" conaffinity="7" solref="0.001 1" solimp="0.98 0.995 0.0001" />
+    </body>
+    <body name="obstacle13_body" pos="0 0 0.8">
+      <inertial pos="0 0 0" mass="30" diaginertia="2 2 2" />
+      <joint name="obstacle13_x" type="slide" axis="1 0 0" limited="true" range="-1e-6 1e-6" />
+      <joint name="obstacle13_y" type="slide" axis="0 1 0" limited="true" range="-1e-6 1e-6" />
+      <joint name="obstacle13_z" type="slide" axis="0 0 1" limited="true" range="-1e-6 1e-6" />
+      <geom name="obstacle13" type="cylinder" size="0.4 0.8 0" pos="0 0 0" friction="8.0 0.5 0.1" material="matobs" contype="1" conaffinity="7" solref="0.001 1" solimp="0.98 0.995 0.0001" />
+    </body>
+    <body name="obstacle14_body" pos="0 0 0.8">
+      <inertial pos="0 0 0" mass="30" diaginertia="2 2 2" />
+      <joint name="obstacle14_x" type="slide" axis="1 0 0" limited="true" range="-1e-6 1e-6" />
+      <joint name="obstacle14_y" type="slide" axis="0 1 0" limited="true" range="-1e-6 1e-6" />
+      <joint name="obstacle14_z" type="slide" axis="0 0 1" limited="true" range="-1e-6 1e-6" />
+      <geom name="obstacle14" type="cylinder" size="0.4 0.8 0" pos="0 0 0" friction="8.0 0.5 0.1" material="matobs" contype="1" conaffinity="7" solref="0.001 1" solimp="0.98 0.995 0.0001" />
+    </body>
+    <body name="obstacle15_body" pos="0 0 0.8">
+      <inertial pos="0 0 0" mass="30" diaginertia="2 2 2" />
+      <joint name="obstacle15_x" type="slide" axis="1 0 0" limited="true" range="-1e-6 1e-6" />
+      <joint name="obstacle15_y" type="slide" axis="0 1 0" limited="true" range="-1e-6 1e-6" />
+      <joint name="obstacle15_z" type="slide" axis="0 0 1" limited="true" range="-1e-6 1e-6" />
+      <geom name="obstacle15" type="cylinder" size="0.4 0.8 0" pos="0 0 0" friction="8.0 0.5 0.1" material="matobs" contype="1" conaffinity="7" solref="0.001 1" solimp="0.98 0.995 0.0001" />
+    </body>
+    <body name="obstacle16_body" pos="0 0 0.8">
+      <inertial pos="0 0 0" mass="30" diaginertia="2 2 2" />
+      <joint name="obstacle16_x" type="slide" axis="1 0 0" limited="true" range="-1e-6 1e-6" />
+      <joint name="obstacle16_y" type="slide" axis="0 1 0" limited="true" range="-1e-6 1e-6" />
+      <joint name="obstacle16_z" type="slide" axis="0 0 1" limited="true" range="-1e-6 1e-6" />
+      <geom name="obstacle16" type="cylinder" size="0.4 0.8 0" pos="0 0 0" friction="8.0 0.5 0.1" material="matobs" contype="1" conaffinity="7" solref="0.001 1" solimp="0.98 0.995 0.0001" />
+    </body>
+    <body name="obstacle17_body" pos="0 0 0.6">
+      <inertial pos="0 0 0" mass="30" diaginertia="2 2 2" />
+      <joint name="obstacle17_x" type="slide" axis="1 0 0" limited="true" range="-1e-6 1e-6" />
+      <joint name="obstacle17_y" type="slide" axis="0 1 0" limited="true" range="-1e-6 1e-6" />
+      <joint name="obstacle17_z" type="slide" axis="0 0 1" limited="true" range="-1e-6 1e-6" />
+      <geom name="obstacle17" type="cylinder" size="0.4 0.8 0" pos="0 0 0" friction="8.0 0.5 0.1" material="matobs" contype="1" conaffinity="7" solref="0.001 1" solimp="0.98 0.995 0.0001" />
+    </body>
+    <body name="obstacle18_body" pos="0 0 0.8">
+      <inertial pos="0 0 0" mass="30" diaginertia="2 2 2" />
+      <joint name="obstacle18_x" type="slide" axis="1 0 0" limited="true" range="-1e-6 1e-6" />
+      <joint name="obstacle18_y" type="slide" axis="0 1 0" limited="true" range="-1e-6 1e-6" />
+      <joint name="obstacle18_z" type="slide" axis="0 0 1" limited="true" range="-1e-6 1e-6" />
+      <geom name="obstacle18" type="cylinder" size="0.4 0.8 0" pos="0 0 0" friction="8.0 0.5 0.1" material="matobs" contype="1" conaffinity="7" solref="0.001 1" solimp="0.98 0.995 0.0001" />
+    </body>
+    <body name="obstacle19_body" pos="0 0 0.8">
+      <inertial pos="0 0 0" mass="30" diaginertia="2 2 2" />
+      <joint name="obstacle19_x" type="slide" axis="1 0 0" limited="true" range="-1e-6 1e-6" />
+      <joint name="obstacle19_y" type="slide" axis="0 1 0" limited="true" range="-1e-6 1e-6" />
+      <joint name="obstacle19_z" type="slide" axis="0 0 1" limited="true" range="-1e-6 1e-6" />
+      <geom name="obstacle19" type="cylinder" size="0.4 0.8 0" pos="0 0 0" friction="8.0 0.5 0.1" material="matobs" contype="1" conaffinity="7" solref="0.001 1" solimp="0.98 0.995 0.0001" />
+    </body>
+    <site name="goal_site" pos="0 0 0.25" size="0.25" rgba="1.0 1.0 1.0 1.0" />
+    <!-- Robot -->
+    <body name="base" pos="0 0 0.11">
+      <freejoint name="base_free"/>
+
+      <!-- Chassis -->
+      <geom name="base_geom" type="cylinder" size="0.2 0.09" pos="0.0 0.0 0.0"
+            material="matrobot" condim="3" solref="0.001 1" solimp="0.98 0.995 0.0001" contype="2" conaffinity="1"  density="100"/>
+
+      <!-- Wheels (vertical) -->
+      <body name="left_wheel" pos="-0.05 0.18 -0.05">
+        <joint name="left_hinge" type="hinge" axis="0 1 0" limited="false" damping="0.2" armature="0.02"/>
+        <geom name="left_wheel_geom" type="cylinder" size="0.06 0.02"
+              euler="90 0 0" material="matwheel" friction="1 0.1 0.0" condim="3"  contype="4" conaffinity="1"  density="100"/>
+      </body>
+      <body name="right_wheel" pos="-0.05 -0.18 -0.05">
+        <joint name="right_hinge" type="hinge" axis="0 1 0" limited="false" damping="0.2" armature="0.02"/>
+        <geom name="right_wheel_geom" type="cylinder" size="0.06 0.02"
+              euler="90 0 0" material="matwheel" friction="1 0.1 0.0" condim="3" contype="4" conaffinity="1"  density="100"/>
+      </body>
+      <!--
+      <body name="front_caster" pos="0.15 0 -0.05">        
+        <geom name="caster_geom" type="sphere" size="0.06" friction="0.0 0.0 0.0" condim="1"/>
+      </body>-->
+      <!---->
+      <body name="front_caster_mount" pos="0.15 0 -0.05">        
+        <joint name="caster_swivel" type="hinge" axis="0 0 1" damping="0.05" pos="0 0 0"/>        
+        <geom name="caster_fork" type="capsule" fromto="0 0 0 -0.03 0 -0.02" size="0.01" material="matwheel"  density="100"/>
+        <body name="caster_wheel" pos="-0.03 0 -0.02">            
+            <joint name="caster_axle" type="hinge" axis="0 1 0" damping="0.001"/>            
+            <geom name="caster_wheel_geom" type="cylinder" size="0.04 0.015" euler="90 0 0" 
+                  material="matwheel" condim="3" friction="1.0 0.005 0.0001"  contype="4" conaffinity="1"/>
+        </body>
+      </body>
+
+      <!-- Cameras + markers -->
+        <camera name="cam_left"  pos="0.12  0.07 0.09" euler="90 -35 0" fovy="120"/>
+        <camera name="cam_right" pos="0.12 -0.07 0.09" euler="-90 -35 180" fovy="120"/>
+        <geom name="cam_left_marker"  type="sphere" size="0.03"
+                pos="0.12  0.07 0.1" rgba="1 0 0 1" contype="0" conaffinity="0"  density="100"/>
+        <geom name="cam_right_marker" type="sphere" size="0.03"
+                pos="0.12 -0.07 0.1" rgba="1 0 0 1" contype="0" conaffinity="0"  density="100"/>
+    </body>
+  </worldbody>
+  <actuator>
+    <motor name="left_motor" joint="left_hinge" gear="3" ctrlrange="-2 2" />
+    <motor name="right_motor" joint="right_hinge" gear="3" ctrlrange="-2 2" />
+  </actuator>
+</mujoco>
