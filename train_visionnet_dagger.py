@@ -1,8 +1,13 @@
 """
-DAgger imitation learning for the EfficientNet-B0 agent using vision-only inputs.
+DAgger imitation learning for vision-based agents (EfficientNet-B0 / MobileNetV3-Large).
+
+Usage:
+    python train_visionnet_dagger.py --agent efficientnet
+    python train_visionnet_dagger.py --agent mobilenet
 """
 
 from __future__ import annotations
+import argparse
 import time as _time
 from typing import Any
 from dataclasses import dataclass
@@ -19,6 +24,7 @@ import cv2
 from environment.mujoco_two_cam_env_random_obstacles import MuJoCoTwoCamEnv
 from agents.teacher_analytic_agent import PlannerAnalyticTeacher
 from agents.efficientnet_agent import EfficientNetAgent
+from agents.mobilenet_agent import MobileNetAgent
 from core.utils import get_device, obs_to_torch
 
 # -----------------------------
@@ -42,6 +48,9 @@ END_ON_COLLISION = False
 # -----------------------------
 # DAgger Hyperparameters
 # -----------------------------
+
+AGENT = "efficientnet" # "efficientnet" or "mobilenet"
+
 N_DAGGER_ITERS = 4
 EPISODES_PER_ITER = 500
 TRAIN_STEPS_PER_ITER = 300
@@ -82,11 +91,33 @@ COLLISION_LOOKBACK = T_BURN + 50       # Steps to look back before collision (ma
 COLLISION_RECOVERY_WINDOW = T_UNROLL + 50  # Steps after collision for recovery
 MAX_CHUNKS_PER_CATEGORY = 10000  # Max chunks stored per category
 
-LOSS_CSV_PATH = os.path.join(LOSS_DIR, "efficientnet_dagger_loss.csv")
-FINAL_CHECKPOINT_PATH = os.path.join(CHECKPOINT_DIR, "efficientnet_dagger_final.pt")
-
 # Path to checkpoint to resume from (set to None to train from scratch)
 RESUME_CHECKPOINT_PATH = None  
+
+# -----------------------------
+# Agent-specific configuration
+# -----------------------------
+AGENT_REGISTRY = {
+    "efficientnet": {
+        "class": EfficientNetAgent,
+        "label": "EfficientNet-B0",
+        "checkpoint_prefix": "efficientnet_dagger",
+        "loss_csv": "efficientnet_dagger_loss.csv",
+    },
+    "mobilenet": {
+        "class": MobileNetAgent,
+        "label": "MobileNetV3-Large",
+        "checkpoint_prefix": "mobilenet_dagger",
+        "loss_csv": "mobilenet_dagger_loss.csv",
+    },
+}
+
+def _get_agent_config(agent_name: str) -> dict:
+    """Return agent-specific config dict; raises if unknown."""
+    name = agent_name.lower()
+    if name not in AGENT_REGISTRY:
+        raise ValueError(f"Unknown agent '{agent_name}'. Choose from: {list(AGENT_REGISTRY.keys())}")
+    return AGENT_REGISTRY[name]
 
 def _make_env(render_mode=RENDER_MODE):
     """Create a single MuJoCo environment with shared settings."""
@@ -369,7 +400,6 @@ class BalancedDAggerBuffer:
         self.capacity = capacity_per_category
         
         # Each category stores processed chunks as lists of (xs, actions) tuples
-        # xs might be uint8 for EfficientNet
         self.straight_chunks: List[Tuple[np.ndarray, np.ndarray]] = []
         self.turn_chunks: List[Tuple[np.ndarray, np.ndarray]] = []
         self.collision_chunks: List[Tuple[np.ndarray, np.ndarray]] = []
@@ -491,10 +521,10 @@ class BalancedDAggerBuffer:
         return xs_batch, act_arr
 
 
-def log_training_loss(iter_idx, mean_loss, batches, buffer_size, chunk_counts=None):
-    os.makedirs(os.path.dirname(LOSS_CSV_PATH) or ".", exist_ok=True)
-    write_header = not os.path.exists(LOSS_CSV_PATH)
-    with open(LOSS_CSV_PATH, "a", newline="") as f:
+def log_training_loss(loss_csv_path, iter_idx, mean_loss, batches, buffer_size, chunk_counts=None):
+    os.makedirs(os.path.dirname(loss_csv_path) or ".", exist_ok=True)
+    write_header = not os.path.exists(loss_csv_path)
+    with open(loss_csv_path, "a", newline="") as f:
         writer = csv.writer(f)
         if write_header:
             writer.writerow(["dagger_iter", "mean_loss", "batches", "buffer_size", 
@@ -506,9 +536,9 @@ def log_training_loss(iter_idx, mean_loss, batches, buffer_size, chunk_counts=No
         else:
             writer.writerow([iter_idx, mean_loss, batches, buffer_size, 0, 0, 0, 0, 0])
 
-def save_checkpoint(agent, iter_idx):
+def save_checkpoint(agent, iter_idx, checkpoint_prefix):
     os.makedirs(CHECKPOINT_DIR, exist_ok=True)
-    ckpt_path = os.path.join(CHECKPOINT_DIR, f"efficientnet_dagger_iter_{iter_idx}.pt")
+    ckpt_path = os.path.join(CHECKPOINT_DIR, f"{checkpoint_prefix}_iter_{iter_idx}.pt")
     torch.save(agent.state_dict(), ckpt_path)
     return ckpt_path
 
@@ -1033,6 +1063,23 @@ def train_step(agent, buffer, opt, accum_steps=GRAD_ACCUM_STEPS):
 
 
 def main():
+    # parser = argparse.ArgumentParser(description="DAgger training for vision-based agents.")
+    # parser.add_argument(
+    #     "--agent", type=str, required=True,
+    #     choices=list(AGENT_REGISTRY.keys()),
+    #     help="Which vision agent to train (e.g. 'efficientnet' or 'mobilenet')."
+    # )
+    # args = parser.parse_args()
+
+    agent_name = AGENT
+
+    agent_cfg = _get_agent_config(agent_name)
+    AgentClass = agent_cfg["class"]
+    agent_label = agent_cfg["label"]
+    checkpoint_prefix = agent_cfg["checkpoint_prefix"]
+    loss_csv_path = os.path.join(LOSS_DIR, agent_cfg["loss_csv"])
+    final_checkpoint_path = os.path.join(CHECKPOINT_DIR, f"{checkpoint_prefix}_final.pt")
+
     device = get_device()
     dtype = DTYPE
     print(f"[device] Using {device} ({dtype})")
@@ -1042,9 +1089,9 @@ def main():
     envs = [_make_env() for _ in range(N_ENVS)]
     teachers = [_make_teacher() for _ in range(N_ENVS)]
     
-    # Initialize EfficientNet Agent
-    print("Initializing EfficientNet-B0 Agent...")
-    agent = EfficientNetAgent(
+    # Initialize Agent
+    print(f"Initializing {agent_label} Agent...")
+    agent = AgentClass(
         action_dim=2,
         hidden_size=256,
         dtype=dtype
@@ -1063,7 +1110,7 @@ def main():
         except:
             print("Could not infer iteration from filename, starting at 0")
     
-    # Configure Optimizer: All params are trainable for EfficientNet + GRU
+    # Configure Optimizer
     optimizer = torch.optim.Adam(agent.parameters(), lr=LR)
     
     # Buffer
@@ -1109,11 +1156,11 @@ def main():
         print()
         
         # 3. Log & Checkpoint
-        log_training_loss(i + 1, avg_loss, TRAIN_STEPS_PER_ITER, len(buffer), chunk_counts)
-        save_checkpoint(agent, i + 1)
+        log_training_loss(loss_csv_path, i + 1, avg_loss, TRAIN_STEPS_PER_ITER, len(buffer), chunk_counts)
+        save_checkpoint(agent, i + 1, checkpoint_prefix)
     
     print("Training Complete.")
-    torch.save(agent.state_dict(), FINAL_CHECKPOINT_PATH)
+    torch.save(agent.state_dict(), final_checkpoint_path)
     for env in envs:
         env.close()
 

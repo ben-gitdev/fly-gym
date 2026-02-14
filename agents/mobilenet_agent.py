@@ -29,20 +29,28 @@ class MobileNetAgent(nn.Module):
         # 1. Visual Encoder: MobileNetV3-Large (Pretrained)
         # We use the feature extractor part.
         self.backbone = models.mobilenet_v3_large(weights=models.MobileNet_V3_Large_Weights.DEFAULT)
+        # Modify first layer to accept 1 channel
+        first_conv_layer = self.backbone.features[0][0]
+        self.backbone.features[0][0] = nn.Conv2d(1, first_conv_layer.out_channels, 
+                                                 kernel_size=first_conv_layer.kernel_size, 
+                                                 stride=first_conv_layer.stride, 
+                                                 padding=first_conv_layer.padding, 
+                                                 bias=False)
+        
         # Remove classifier
         self.backbone.classifier = nn.Identity()
         
         # MobileNetV3-Large last channel size is 960
         self.feature_dim = 960 
         
-        # Goal direction is 2D vector
-        self.goal_dim = 2
+        # Wind direction is 2D vector
+        self.wind_dir_dim = 2
         # Collision is 1D scalar
         self.collision_dim = 1
 
         # 2. Memory: GRU Cell
-        # Input is Visual Features + Goal Direction + Collision
-        self.gru = nn.GRUCell(input_size=self.feature_dim + self.goal_dim + self.collision_dim, hidden_size=hidden_size)
+        # Input is Visual Features + Wind Direction + Collision
+        self.gru = nn.GRUCell(input_size=self.feature_dim + self.wind_dir_dim + self.collision_dim, hidden_size=hidden_size)
 
         # 3. Policy Head
         self.policy_head = nn.Sequential(
@@ -60,9 +68,12 @@ class MobileNetAgent(nn.Module):
         else:
             self.register_parameter("policy_log_std", None)
 
-        # 5. Normalization stats (ImageNet)
-        self.register_buffer("mean", torch.tensor([0.485, 0.456, 0.406]).view(1, 3, 1, 1))
-        self.register_buffer("std", torch.tensor([0.229, 0.224, 0.225]).view(1, 3, 1, 1))
+        # 5. Normalization stats (ImageNet - Grayscale)
+        # Standard ImageNet mean/std are for RGB. For grayscale, we can average them or use 0.5/0.5
+        # RGB mean: [0.485, 0.456, 0.406] -> avg: 0.449
+        # RGB std: [0.229, 0.224, 0.225] -> avg: 0.226
+        self.register_buffer("mean", torch.tensor([0.449]).view(1, 1, 1, 1))
+        self.register_buffer("std", torch.tensor([0.226]).view(1, 1, 1, 1))
 
     @property
     def device(self) -> torch.device:
@@ -71,22 +82,37 @@ class MobileNetAgent(nn.Module):
     def _process_images(self, obs: Dict[str, Any]) -> torch.Tensor:
         """
         Process raw observation dict into tensor batch.
-        Concat left and right cameras -> (B, 3, H, W_combined)
+        Concat left and right cameras -> (B, 1, H, W_combined)
         Returns UINT8 tensor (0-255).
         """
         cam_left = obs["cam_left"]
         cam_right = obs["cam_right"]
 
-        # Check dim. If (B, H, W, 3), permute.
+        # Check dim. If (B, H, W, 3) or (B, 3, H, W), we need to extract grayscale.
+        # We'll use simple averaging or just take green channel if needed, but PyTorch conversion is safer.
+        
+        # Assume input is RGB uint8 or float.
+        # If (B, H, W, 3), permute to (B, 3, H, W)
         if cam_left.ndim == 4 and cam_left.shape[-1] == 3:
             cam_left = cam_left.permute(0, 3, 1, 2)
             cam_right = cam_right.permute(0, 3, 1, 2)
-
+            
         # Resize to 30x30
         if cam_left.shape[-2:] != (30, 30):
-            cam_left = F.interpolate(cam_left.float(), size=(30, 30), mode='bilinear', align_corners=False)
-            cam_right = F.interpolate(cam_right.float(), size=(30, 30), mode='bilinear', align_corners=False)
+            cam_left = F.interpolate(cam_left.float(), size=(30, 30), mode='area')
+            cam_right = F.interpolate(cam_right.float(), size=(30, 30), mode='area')
 
+        # Convert to Grayscale: 0.299R + 0.587G + 0.114B
+        # This assumes input is RGB
+        # If input is already float (interpolated), we can manually do weighted sum
+        if cam_left.shape[1] == 3:
+             # weights = torch.tensor([0.299, 0.587, 0.114], device=cam_left.device).view(1, 3, 1, 1)
+             # cam_left = (cam_left * weights).sum(dim=1, keepdim=True)
+             # cam_right = (cam_right * weights).sum(dim=1, keepdim=True)
+             
+             # Or use torchvision functional if available, but simple weighted sum is fine and differentiable
+             cam_left = 0.299 * cam_left[:, 0:1] + 0.587 * cam_left[:, 1:2] + 0.114 * cam_left[:, 2:3]
+             cam_right = 0.299 * cam_right[:, 0:1] + 0.587 * cam_right[:, 1:2] + 0.114 * cam_right[:, 2:3]
         
         # Concat horizontally (W dimension is last)
         x = torch.cat([cam_left, cam_right], dim=3)
@@ -100,16 +126,11 @@ class MobileNetAgent(nn.Module):
         
         return x
 
-    def _process_goal(self, obs: Dict[str, Any]) -> torch.Tensor:
-        """Extract and normalize goal direction."""
+    def _process_wind_direction(self, obs: Dict[str, Any]) -> torch.Tensor:
+        """Extract wind direction sensor."""
         sensors = obs["sensors"]
         
-        if "vec_to_goal" in sensors:
-            vec = sensors["vec_to_goal"]
-        elif "vec_left_to_goal" in sensors: 
-             vec = (sensors["vec_left_to_goal"] + sensors["vec_right_to_goal"]) / 2.0
-        else:
-             vec = torch.zeros(1, 2, device=self.device)
+        vec = sensors.get("wind_direction", torch.zeros(1, 2, device=self.device))
 
         if vec.dim() == 1:
             vec = vec.unsqueeze(0)
@@ -134,22 +155,22 @@ class MobileNetAgent(nn.Module):
     def obs_to_x(self, obs: Dict[str, Any]) -> Dict[str, torch.Tensor]:
         """
         Wrapper to match ConnectomeAgent API. 
-        Returns dict with 'img' (uint8), 'goal' (float), 'collision' (float).
+        Returns dict with 'img' (uint8), 'wind_direction' (float), 'collision' (float).
         """
         return {
             "img": self._process_images(obs),
-            "goal": self._process_goal(obs),
+            "wind_direction": self._process_wind_direction(obs),
             "collision": self._process_collision(obs)
         }
 
     def forward(self, x: Dict[str, torch.Tensor], h: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
         """
         Single step forward.
-        x: Dict {'img': (B, 3, H, W), 'goal': (B, 2), 'collision': (B, 1)}
+        x: Dict {'img': (B, 3, H, W), 'wind_direction': (B, 2), 'collision': (B, 1)}
         h: (B, hidden_size)
         """
         img = x["img"]
-        goal = x["goal"]
+        wind_dir = x["wind_direction"]
         col = x["collision"]
         
         # Normalize Image
@@ -160,11 +181,11 @@ class MobileNetAgent(nn.Module):
         # MobileNet Backbone
         vis_features = self.backbone(img) # (B, 960)
         
-        # Concatenate with Goal and Collision
-        goal = goal.to(vis_features.device, dtype=vis_features.dtype)
+        # Concatenate with Wind Direction and Collision
+        wind_dir = wind_dir.to(vis_features.device, dtype=vis_features.dtype)
         col = col.to(vis_features.device, dtype=vis_features.dtype)
         
-        combined_features = torch.cat([vis_features, goal, col], dim=1) # (B, 963)
+        combined_features = torch.cat([vis_features, wind_dir, col], dim=1) # (B, 963)
         
         # GRU
         h_next = self.gru(combined_features, h)
@@ -184,7 +205,7 @@ class MobileNetAgent(nn.Module):
         # x is dict.
         # Ensure tensors are on device.
         x["img"] = x["img"].to(self.device)
-        x["goal"] = x["goal"].to(self.device)
+        x["wind_direction"] = x["wind_direction"].to(self.device)
         x["collision"] = x["collision"].to(self.device)
         
         # Ensure h is on device
@@ -201,7 +222,7 @@ class MobileNetAgent(nn.Module):
 
     def forward_sequence(
         self,
-        xs: Dict[str, torch.Tensor], # {'img': ..., 'goal': ..., 'collision': ...}
+        xs: Dict[str, torch.Tensor], # {'img': ..., 'wind_direction': ..., 'collision': ...}
         h_init: Optional[torch.Tensor] = None,
         checkpoint_steps: bool = False,
     ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
@@ -209,7 +230,7 @@ class MobileNetAgent(nn.Module):
         Sequence processing for training.
         """
         imgs = xs["img"] # (T, B, 3, H, W)
-        goals = xs["goal"] # (T, B, 2)
+        wind_dirs = xs["wind_direction"] # (T, B, 2)
         collisions = xs["collision"] # (T, B, 1)
         
         T, B, C, H, W = imgs.shape
@@ -223,11 +244,11 @@ class MobileNetAgent(nn.Module):
         
         for t in range(T):
             img_t = imgs[t].to(self.device)
-            goal_t = goals[t].to(self.device)
+            wind_dir_t = wind_dirs[t].to(self.device)
             col_t = collisions[t].to(self.device)
             
             # Form standard input dict for forward
-            x_t = {"img": img_t, "goal": goal_t, "collision": col_t}
+            x_t = {"img": img_t, "wind_direction": wind_dir_t, "collision": col_t}
             
             # Forward (includes normalization inside)
             action, h = self.forward(x_t, h)

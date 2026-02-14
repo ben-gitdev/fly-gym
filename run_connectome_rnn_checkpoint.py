@@ -48,6 +48,13 @@ from train_connectome_rnn_dagger import (
 from train_connectome_rnn_rl import CTRL_PENALTY, TIME_PENALTY, PROG_SCALE, GOAL_BONUS, CONTACT_PENALTY
 from core.utils import build_connectome_cell, obs_to_torch
 
+
+EDGE_PATH = "connectomes/drosophila adult connectome/connections_princeton_random.csv"
+CHECKPOINT = "checkpoints/connectome_rnn_dagger_princeton_random.pt"
+# EDGE_PATH = "connectomes/drosophila adult connectome/connections_princeton.csv"
+# CHECKPOINT = "checkpoints/connectome_rnn_dagger_princeton.pt"
+RECORD_CSV = "connectomes/drosophila adult connectome/moonwalker_descending_neurons.csv"       # e.g., "neurons_to_record.csv"
+OVERWRITE_CSV = "connectomes/drosophila adult connectome/moonwalker_descending_neurons.csv"    # e.g., "neurons_to_overwrite.csv"
 END_ON_COLLISION = False
 MAX_EPISODE_STEPS = 600
 
@@ -128,6 +135,55 @@ def load_neuron_indices(csv_path: str, id2idx: dict) -> List[int]:
         return []
 
 
+def load_neuron_overwrite_config(
+    csv_path: str, id2idx: dict, default_value: float = 0.0,
+    device: torch.device = torch.device("cpu"), dtype: torch.dtype = torch.float32,
+) -> Tuple[List[int], Optional[torch.Tensor]]:
+    """Load neuron indices and per-neuron overwrite values from a CSV.
+
+    The CSV must have a ``root_id`` column.  If it also contains a ``value``
+    column, each neuron gets its own overwrite value; otherwise all neurons
+    use *default_value*.
+
+    Returns
+    -------
+    indices : list[int]
+        Network-internal indices of the neurons to overwrite.
+    values : torch.Tensor or None
+        Shape ``(len(indices),)`` tensor of per-neuron overwrite values,
+        or *None* when *csv_path* is empty / missing.
+    """
+    if not csv_path or not os.path.exists(csv_path):
+        return [], None
+
+    try:
+        df = pd.read_csv(csv_path)
+        if "root_id" not in df.columns:
+            print(f"[warn] {csv_path} missing 'root_id' column.")
+            return [], None
+
+        has_value_col = "value" in df.columns
+        ids = df["root_id"].astype(int).tolist()
+        values_raw = df["value"].tolist() if has_value_col else None
+
+        indices: List[int] = []
+        values_list: List[float] = []
+        for i, nid in enumerate(ids):
+            if nid in id2idx:
+                indices.append(id2idx[nid])
+                values_list.append(values_raw[i] if has_value_col else default_value)
+
+        values_tensor = torch.tensor(values_list, device=device, dtype=dtype)
+        print(
+            f"[io] Loaded {len(indices)} overwrite neurons from {csv_path} "
+            f"(out of {len(ids)} requested, per-neuron values: {has_value_col})."
+        )
+        return indices, values_tensor
+    except Exception as e:
+        print(f"[error] Failed to load overwrite config from {csv_path}: {e}")
+        return [], None
+
+
 
 @torch.no_grad()
 def rollout_episode(
@@ -142,7 +198,7 @@ def rollout_episode(
     save_dir: str,
     record_indices: Optional[List[int]] = None,
     overwrite_indices: Optional[List[int]] = None,
-    overwrite_value: float = 0.0,
+    overwrite_values: Optional[torch.Tensor] = None,
     overwrite_interval: int = 1,
     overwrite_steps: int = 1,
 ) -> Tuple[float, int, bool, bool]:
@@ -181,8 +237,8 @@ def rollout_episode(
         h, action = agent.step(h, obs_t)
         
         # --- Overwrite Neuron Activity AFTER step to clamp values ---
-        if overwrite_indices and (steps % overwrite_interval < overwrite_steps):
-            h[:, overwrite_indices] = overwrite_value
+        if overwrite_indices and overwrite_values is not None and (steps % overwrite_interval < overwrite_steps):
+            h[:, overwrite_indices] = overwrite_values
         # ------------------------------------------------------------
         
         # Now h is the NEW state (with overwrites applied). Record it.
@@ -231,13 +287,13 @@ def main():
     dtype = DTYPE
     
     # --- Configuration ---
-    checkpoint = "checkpoints/connectome_rnn_dagger_princeton_random.pt"
+    checkpoint = CHECKPOINT
     episodes = 100
     render_mode = "human" # Set to None for faster headless run
     
     # Neuron Manipulation Config
-    record_csv = None #"connectomes/drosophila adult connectome/moonwalker_descending_neurons.csv"       # e.g., "neurons_to_record.csv"
-    overwrite_csv = None #"connectomes/drosophila adult connectome/moonwalker_descending_neurons.csv"    # e.g., "neurons_to_overwrite.csv"
+    record_csv = RECORD_CSV #"connectomes/drosophila adult connectome/moonwalker_descending_neurons.csv"       # e.g., "neurons_to_record.csv"
+    overwrite_csv = OVERWRITE_CSV #"connectomes/drosophila adult connectome/moonwalker_descending_neurons.csv"    # e.g., "neurons_to_overwrite.csv"
     overwrite_val = 0.8
     overwrite_int = 150
     overwrite_steps = 80
@@ -248,10 +304,13 @@ def main():
 
     # Load indices
     record_indices = load_neuron_indices(record_csv, id2idx)
-    overwrite_indices = load_neuron_indices(overwrite_csv, id2idx)
+    overwrite_indices, overwrite_values = load_neuron_overwrite_config(
+        overwrite_csv, id2idx, default_value=overwrite_val, device=device, dtype=dtype,
+    )
     
     if overwrite_indices:
-        print(f"[main] Overwriting {len(overwrite_indices)} neurons with {overwrite_val} every {overwrite_int} steps.")
+        print(f"[main] Overwriting {len(overwrite_indices)} neurons every {overwrite_int} steps.")
+        print(f"       Per-neuron values: {overwrite_values}")
 
     teacher = PlannerAnalyticTeacher(
         arena_half_extent=env.arena,
@@ -277,7 +336,7 @@ def main():
                 episode_idx=ep, save_dir=save_dir,
                 record_indices=record_indices,
                 overwrite_indices=overwrite_indices,
-                overwrite_value=overwrite_val,
+                overwrite_values=overwrite_values,
                 overwrite_interval=overwrite_int,
                 overwrite_steps=overwrite_steps,
             )

@@ -28,8 +28,7 @@ LR = 1e-4
 # -----------------------------
 # EDGE_PATH = "connectomes/drosophila adult connectome/Connectivity_783.parquet"
 # EDGE_PATH = "connectomes/drosophila adult connectome/Connectivity_random.parquet"
-# EDGE_PATH = "connectomes/drosophila adult connectome/connections_princeton.csv"
-EDGE_PATH = "connectomes/drosophila adult connectome/connections_princeton_random.csv"
+EDGE_PATH = "connectomes/drosophila adult connectome/connections_princeton.csv"
 PHOTORECEPTOR_LEFT_CSV = "connectomes/drosophila adult connectome/visual_column_L1_L2_L3_rear_view_left.csv"
 PHOTORECEPTOR_RIGHT_CSV = "connectomes/drosophila adult connectome/visual_column_L1_L2_L3_rear_view_right.csv"
 OLFACTORY_LEFT_CSV = "connectomes/drosophila adult connectome/olfactory_ORN_DM1_left.csv"
@@ -45,7 +44,7 @@ WIND_SENSING_CSV = "connectomes/drosophila adult connectome/JO-C_and_JO-E.csv"
 # -----------------------------
 ENV_WIDTH = 128
 ENV_HEIGHT = 128
-MAX_EPISODE_STEPS = 2000
+MAX_EPISODE_STEPS = 500
 N_OBSTACLES = 20
 ARENA_HALF_EXTENT = 7.0
 RENDER_MODE = None

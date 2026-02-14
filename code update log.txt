@@ -4,7 +4,12 @@ sensors ablation tests: smell, wind direction, one eye, both eyes, tactile
 online learning
 moonwalk neuron activity
 performance comparation to random network
+neuron axon length
 
+generalization brain vs random
+ablation robustness
+n parameters vs performance curve
+moonwalk on small network
 
 ############2026-01-27##############
 

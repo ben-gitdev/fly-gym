@@ -514,11 +514,13 @@ class ConnectomeAgent(nn.Module):
                 pass 
             else:
                 x_wind = self.wind_mlp(x_wind[:, 0:2])
-            use_vision = True
-            if not use_vision:
+            use_vision_left = True
+            if not use_vision_left:
                 a_L1_L*=0.0
                 a_L2_L*=0.0
                 a_L3_L*=0.0
+            use_vision_right = True
+            if not use_vision_right:
                 a_L1_R*=0.0
                 a_L2_R*=0.0
                 a_L3_R*=0.0
