@@ -2,30 +2,23 @@
 DAgger imitation learning for vision-based agents (EfficientNet-B0 / MobileNetV3-Large).
 
 Usage:
-    python train_visionnet_dagger.py --agent efficientnet
-    python train_visionnet_dagger.py --agent mobilenet
+    Set AGENT = "efficientnet" or "mobilenet" at the top of this file.
 """
 
 from __future__ import annotations
-import argparse
 import time as _time
-from typing import Any
-from dataclasses import dataclass
-from typing import Tuple, Dict, List, Optional
-import matplotlib.pyplot as plt
 import os
 import csv
 
 import numpy as np
 import torch
-import cv2
 
 
 from environment.mujoco_two_cam_env_random_obstacles import MuJoCoTwoCamEnv
 from agents.teacher_analytic_agent import PlannerAnalyticTeacher
 from agents.efficientnet_agent import EfficientNetAgent
 from agents.mobilenet_agent import MobileNetAgent
-from core.utils import get_device, obs_to_torch
+from core.utils import get_device
 
 # -----------------------------
 # Paths (hardcoded)
@@ -36,14 +29,11 @@ from shared_config import (
     MAX_EPISODE_STEPS,
     N_OBSTACLES,
     ARENA_HALF_EXTENT,
-    RENDER_MODE,
-    BATCH_CHUNK,
     DTYPE,
     CHECKPOINT_DIR,
     LOSS_DIR,
 )
 
-END_ON_COLLISION = False
 
 # -----------------------------
 # DAgger Hyperparameters
@@ -119,7 +109,7 @@ def _get_agent_config(agent_name: str) -> dict:
         raise ValueError(f"Unknown agent '{agent_name}'. Choose from: {list(AGENT_REGISTRY.keys())}")
     return AGENT_REGISTRY[name]
 
-def _make_env(render_mode=RENDER_MODE):
+def _make_env(render_mode=None):
     """Create a single MuJoCo environment with shared settings."""
     return MuJoCoTwoCamEnv(
         width=ENV_WIDTH,
@@ -142,13 +132,7 @@ def _make_teacher():
         device="cpu",
     )
 
-def maybe_show_cameras(obs):
-    if RENDER_MODE != "human" or cv2 is None: return
-    left_gray = cv2.cvtColor(obs["cam_left"], cv2.COLOR_RGB2GRAY)
-    right_gray = cv2.cvtColor(obs["cam_right"], cv2.COLOR_RGB2GRAY)
-    frame = np.hstack([left_gray, right_gray])
-    cv2.imshow("MuJoCo cams (left | right, gray)", frame)
-    cv2.waitKey(1)
+
 
 def beta_schedule(iter_idx):
     if iter_idx < BETA_WARMUP:
@@ -593,111 +577,6 @@ def forward_policy_sequence(agent, xs):
     _, y_seq, _ = agent.forward_sequence(xs, checkpoint_steps=False)
     return y_seq
 
-def rollout_episode(
-    env, teacher, agent, beta: float, device, dtype, beta_noise: float = 0.0
-) -> Tuple[List[dict], List[dict], np.ndarray, bool]:
-    """
-    Run one episode and return raw observations + teacher actions.
-    """
-    raw_obs_list = []
-    processed_obs_list = []  # Stores CPU numpy dicts (no GPU tensors)
-    teacher_actions_list = []
-    
-    obs, _ = env.reset()
-    agent.reset_vision_state()
-    teacher.reset()
-    steps = 0
-    
-    # Determine if we need GPU inference at all
-    need_student = beta < 1.0
-    
-    # Only allocate GPU state if student inference is needed
-    if need_student:
-        h = torch.zeros(1, agent.hidden_size, device=device, dtype=dtype)
-        # Pre-allocate pinned memory buffers to reduce PCIe transfer latency
-        # Pinned (page-locked) memory avoids OS page-fault overhead on each transfer
-        pin_img = torch.empty(1, 1, 30, 60, dtype=torch.uint8).pin_memory()
-        np_dtype = np.float32 if dtype == torch.float32 else np.float16
-        pin_wind = torch.empty(1, 2, dtype=torch.float32).pin_memory()
-        pin_col = torch.empty(1, 1, dtype=torch.float32).pin_memory()
-    
-    noise_disturbing = False
-    noise_steps = 0
-    noise = np.zeros(2, dtype=np.float32)
-    action_exec = np.zeros(2, dtype=np.float32)
-    
-    while steps < MAX_EPISODE_STEPS:
-
-        obs, _, done, trunc, _ = env.step(action_exec)
-        steps += 1
-
-        maybe_show_cameras(obs)
-        
-        # Store raw observation BEFORE processing
-        raw_obs_list.append(obs)
-        
-        # CPU Preprocessing
-        xs_cpu = preprocess_obs_cpu(obs, dtype=np.float32 if dtype == torch.float32 else np.float16)
-        
-        # Store CPU numpy dict for later chunking (no GPU storage)
-        processed_obs_list.append(xs_cpu)
-        
-        if need_student:
-            # Transfer to GPU via pinned memory (lower PCIe latency)
-            pin_img[0] = torch.from_numpy(xs_cpu["img"])
-            pin_wind[0] = torch.from_numpy(xs_cpu["wind_direction"])
-            pin_col[0] = torch.from_numpy(xs_cpu["collision"])
-            
-            xs_gpu = {
-                "img": pin_img.to(device, non_blocking=True),
-                "wind_direction": pin_wind.to(device, non_blocking=True),
-                "collision": pin_col.to(device, non_blocking=True),
-            }
-            
-            with torch.no_grad():
-                h, student_action = agent.step(h, None, x=xs_gpu)
-            
-            if teacher._rec_phase is None:
-                student_action_np = student_action.squeeze(0).cpu().numpy()
-            else:
-                student_action_np = None
-        
-        teacher_action = teacher.act(env)
-        
-        if teacher_action is None:
-            return [], [], np.array([]), False
-        
-        teacher_actions_list.append(teacher_action.copy())
-        
-        # Determine action to execute
-        if teacher._rec_phase is not None:
-            action_exec = teacher_action
-        elif not need_student:
-            # beta >= 1.0: pure teacher driving, no GPU involved
-            action_exec = teacher_action
-        else:
-            if student_action_np is not None:
-                action_exec = beta * teacher_action + (1.0 - beta) * student_action_np
-            else:
-                action_exec = teacher_action
-        
-        # Noise Injection Logic
-        if not noise_disturbing and teacher._rec_phase is None and steps % NOISE_INTERVAL == 1:
-            noise_disturbing = True
-            noise_steps = 0
-            noise = np.array([0.0, np.random.uniform(-1.0, 1.0)], dtype=np.float32) * beta_noise
-        if noise_disturbing:
-            action_exec += noise
-            noise_steps += 1
-            if noise_steps >= 50:
-                noise_disturbing = False
-        
-        if done or trunc:
-            break
-            
-    # processed_obs_list already contains CPU numpy dicts — no GPU→CPU conversion needed
-    return raw_obs_list, processed_obs_list, np.array(teacher_actions_list, dtype=np.float32), True
-
 
 def process_episode_to_chunks(
     agent,
@@ -744,7 +623,7 @@ def process_episode_to_chunks(
             xs_list = xs_chunk
             
             # Stack: xs_arr becomes dict of arrays
-            # {'img': (T, 3, H, W), 'goal': (T, 2)}
+            # {'img': (T, 1, H, W), 'wind_direction': (T, 2), ...}
             xs_arr = {}
             for k in xs_list[0].keys():
                 xs_arr[k] = np.stack([x[k] for x in xs_list], axis=0)
@@ -1022,7 +901,7 @@ def train_step(agent, buffer, opt, accum_steps=GRAD_ACCUM_STEPS):
         # Sample a batch using balanced sampling
         xs, ys = buffer.sample_balanced_sequences(batch_size=BATCH_SIZE)
         
-        # xs is dict {'img': (T, B, 3, H, W) uint8, 'goal': (T, B, 2) float}
+        # xs is dict {'img': (T, B, 1, H, W) uint8, 'wind_direction': (T, B, 2) float, ...}
         # ys is (T, B, 2) float
         
         mu = forward_policy_sequence(agent, xs)
@@ -1063,14 +942,6 @@ def train_step(agent, buffer, opt, accum_steps=GRAD_ACCUM_STEPS):
 
 
 def main():
-    # parser = argparse.ArgumentParser(description="DAgger training for vision-based agents.")
-    # parser.add_argument(
-    #     "--agent", type=str, required=True,
-    #     choices=list(AGENT_REGISTRY.keys()),
-    #     help="Which vision agent to train (e.g. 'efficientnet' or 'mobilenet')."
-    # )
-    # args = parser.parse_args()
-
     agent_name = AGENT
 
     agent_cfg = _get_agent_config(agent_name)
@@ -1130,7 +1001,7 @@ def main():
             analyzer, chunk_length=T_UNROLL + T_BURN, stride=T_BURN
         )
         t_rollout = _time.perf_counter() - t_start
-        print(f"  Rollout took {t_rollout:.1f}s ({EPISODES_PER_ITER/t_rollout:.1f} ep/s)")
+        print(f"  Rollout took {t_rollout:.1f}s ({EPISODES_PER_ITER/t_rollout:.2f} ep/s)")
         
         print("Buffer Status:")
         for cat, count in buffer.get_counts().items():

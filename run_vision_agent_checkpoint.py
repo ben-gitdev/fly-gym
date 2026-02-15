@@ -4,7 +4,6 @@ Uses the same preprocessing pipeline as train_visionnet_dagger.py to ensure
 observation processing matches training exactly.
 """
 
-import argparse
 import os
 import time
 import numpy as np
