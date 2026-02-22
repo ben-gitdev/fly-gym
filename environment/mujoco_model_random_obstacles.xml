@@ -178,15 +178,11 @@
         <joint name="left_hinge" type="hinge" axis="0 1 0" limited="false" damping="0.2" armature="0.02"/>
         <geom name="left_wheel_geom" type="cylinder" size="0.06 0.02"
               euler="90 0 0" material="matwheel" friction="1 0.1 0.0" condim="3"  contype="4" conaffinity="1"  density="100"/>
-        <geom name="left_wheel_dot" type="sphere" size="0.015"
-              pos="0 0.04 -0.03" rgba="1 0 0 1" contype="0" conaffinity="0"/>
       </body>
       <body name="right_wheel" pos="-0.05 -0.18 -0.05">
         <joint name="right_hinge" type="hinge" axis="0 1 0" limited="false" damping="0.2" armature="0.02"/>
         <geom name="right_wheel_geom" type="cylinder" size="0.06 0.02"
               euler="90 0 0" material="matwheel" friction="1 0.1 0.0" condim="3" contype="4" conaffinity="1"  density="100"/>
-        <geom name="right_wheel_dot" type="sphere" size="0.015"
-              pos="0 -0.04 -0.03" rgba="1 0 0 1" contype="0" conaffinity="0"/>
       </body>
       <!--
       <body name="front_caster" pos="0.15 0 -0.05">        

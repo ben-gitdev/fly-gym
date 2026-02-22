@@ -1,11 +1,13 @@
 """
-Script to run trained vision-based agents (EfficientNet, MobileNet) from checkpoints.
+Script to run trained vision-based agents (EfficientNet, MobileNet, Dual-Backbone)
+from checkpoints.
 Uses the same preprocessing pipeline as train_visionnet_dagger.py to ensure
 observation processing matches training exactly.
 """
 
 import os
 import time
+import csv
 import numpy as np
 import torch
 import cv2
@@ -17,6 +19,7 @@ sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 from environment.mujoco_two_cam_env_random_obstacles import MuJoCoTwoCamEnv
 from agents.efficientnet_agent import EfficientNetAgent
 from agents.mobilenet_agent import MobileNetAgent
+from agents.dual_backbone_agent import DualBackboneAgent
 from core.utils import get_device
 
 # Import config constants
@@ -30,41 +33,78 @@ from shared_config import (
     CHECKPOINT_DIR,
 )
 
-# ---- Inline preprocessing (matches train_visionnet_dagger.preprocess_obs_cpu) ----
-def preprocess_obs_cpu(obs, dtype=np.float32):
-    """
-    Process observation on CPU to match the training pipeline exactly.
-    Resizes images to 30x30, converts to grayscale, stacks them, 
-    and extracts wind_direction + collision sensors.
-    Returns dict of numpy arrays ready for GPU transfer.
-    """
-    # 1. Image Processing (CPU OpenCV)
-    left_small = cv2.resize(obs["cam_left"], (30, 30), interpolation=cv2.INTER_AREA)
-    right_small = cv2.resize(obs["cam_right"], (30, 30), interpolation=cv2.INTER_AREA)
-    
-    left_gray = cv2.cvtColor(left_small, cv2.COLOR_RGB2GRAY)
-    right_gray = cv2.cvtColor(right_small, cv2.COLOR_RGB2GRAY)
-    
-    # Format: (1, 30, 60) — horizontal stack with channel dim
-    combined = np.hstack([left_gray, right_gray])
-    img_out = combined[np.newaxis, :, :]
-    
-    # 2. Sensor Processing
+
+# ---- Activation Recorder (forward-hook based) ----
+class ActivationRecorder:
+    """Register forward hooks on selected modules to capture activations."""
+    def __init__(self):
+        self.activations = {}   # name -> tensor (last step)
+        self._hooks = []
+
+    def register(self, model, module_names=None):
+        """Hook into named modules. If module_names is None, hook all."""
+        for name, module in model.named_modules():
+            if module_names is None or name in module_names:
+                self._hooks.append(
+                    module.register_forward_hook(self._make_hook(name))
+                )
+
+    def _make_hook(self, name):
+        def hook(module, input, output):
+            if isinstance(output, torch.Tensor):
+                self.activations[name] = output.detach().cpu()
+        return hook
+
+    def snapshot(self):
+        """Return a copy of current activations as numpy dict."""
+        return {k: v.squeeze(0).numpy() for k, v in self.activations.items()}
+
+    def remove(self):
+        for h in self._hooks:
+            h.remove()
+        self._hooks.clear()
+
+
+# ---- Shared sensor preprocessing ----
+def _preprocess_sensors(obs, dtype=np.float32):
     sensors = obs["sensors"]
     wind_dir = sensors.get("wind_direction", np.zeros(2, dtype=dtype))
-    
     col = sensors.get("collision", np.array([0.0], dtype=dtype))
-    
     wind_dir = np.asarray(wind_dir, dtype=dtype)
     col = np.asarray(col, dtype=dtype)
-    
     if wind_dir.ndim == 0: wind_dir = np.expand_dims(wind_dir, axis=0)
     if col.ndim == 0: col = np.expand_dims(col, axis=0)
-    
+    return wind_dir.astype(dtype), col.astype(dtype)
+
+# ---- Preprocessing for single-backbone agents ----
+def preprocess_obs_cpu(obs, dtype=np.float32, vision=[True, True]):
+    left_small = cv2.resize(obs["cam_left"], (30, 30), interpolation=cv2.INTER_AREA)
+    right_small = cv2.resize(obs["cam_right"], (30, 30), interpolation=cv2.INTER_AREA)
+    left_gray = cv2.cvtColor(left_small, cv2.COLOR_RGB2GRAY) * 0.0 if not vision[0] else cv2.cvtColor(left_small, cv2.COLOR_RGB2GRAY)
+    right_gray = cv2.cvtColor(right_small, cv2.COLOR_RGB2GRAY) * 0.0 if not vision[1] else cv2.cvtColor(right_small, cv2.COLOR_RGB2GRAY)
+    combined = np.hstack([left_gray, right_gray])
+    img_out = combined[np.newaxis, :, :]
+    wind_dir, col = _preprocess_sensors(obs, dtype)
     return {
         "img": img_out.astype(np.uint8),
-        "wind_direction": wind_dir.astype(dtype),
-        "collision": col.astype(dtype),
+        "wind_direction": wind_dir,
+        "collision": col,
+    }
+
+# ---- Preprocessing for dual-backbone agents ----
+def preprocess_obs_cpu_dual(obs, dtype=np.float32, vision=[True, True]):
+    left_small = cv2.resize(obs["cam_left"], (30, 30), interpolation=cv2.INTER_AREA)
+    right_small = cv2.resize(obs["cam_right"], (30, 30), interpolation=cv2.INTER_AREA)
+    left_gray = cv2.cvtColor(left_small, cv2.COLOR_RGB2GRAY)
+    right_gray = cv2.cvtColor(right_small, cv2.COLOR_RGB2GRAY)
+    img_left = left_gray[np.newaxis, :, :] * 0.0 if not vision[0] else left_gray[np.newaxis, :, :]
+    img_right = right_gray[np.newaxis, :, :] * 0.0 if not vision[1] else right_gray[np.newaxis, :, :]
+    wind_dir, col = _preprocess_sensors(obs, dtype)
+    return {
+        "img_left": img_left.astype(np.uint8),
+        "img_right": img_right.astype(np.uint8),
+        "wind_direction": wind_dir,
+        "collision": col,
     }
 
 
@@ -79,23 +119,64 @@ def maybe_show_cameras(obs):
     except Exception:
         pass
 
-def run_episode(env, agent, device, dtype, render=False, render_skip=1):
-    obs, info = env.reset()
+def run_episode(env, agent, device, dtype, render=False, render_skip=1,
+                episode_idx=0, save_dir=None, seed=None, vision=None,
+                save_internal_states=False):
+    obs, info = env.reset(seed=seed)
     if hasattr(agent, "reset_vision_state"):
         agent.reset_vision_state()
     
+    is_dual = isinstance(agent, DualBackboneAgent)
+    preprocess_fn = preprocess_obs_cpu_dual if is_dual else preprocess_obs_cpu
+
+    # --- Record Goal Location ---
+    goal_xy = env._goal_xy.copy()
+    # --------------------------
+
+    # --- Record Obstacles ---
+    if save_dir is not None:
+        active_obstacles = env._obstacle_xy[:env.n_obstacles]
+        obs_file = os.path.join(save_dir, f"obstacles_{episode_idx}.txt")
+        np.savetxt(obs_file, active_obstacles, fmt="%.4f", delimiter=",")
+    # ------------------------
+
     # Initialize hidden state (1, hidden_size)
     h = torch.zeros(1, agent.hidden_size, device=device, dtype=dtype)
     
     steps = 0
     total_reward = 0.0
+    trajectory = []
+    internal_state_snapshots = []
+
+    # --- Set up activation hooks ---
+    recorder = None
+    if save_internal_states and save_dir is not None:
+        recorder = ActivationRecorder()
+        # Determine which modules to hook
+        hook_names = []
+        # Backbone feature blocks
+        for name, _ in agent.backbone.features.named_children():
+            hook_names.append(f"backbone.features.{name}")
+        # Average pool
+        hook_names.append("backbone.avgpool")
+        # GRU and policy head
+        hook_names.append("gru")
+        hook_names.append("policy_head")
+        recorder.register(agent, module_names=hook_names)
+        print(f"[io] Recording internal states for episode {episode_idx} "
+              f"({len(hook_names)} modules hooked)")
+    # --------------------------------
     
     np_dtype = np.float32 if dtype == torch.float32 else np.float16
     use_cuda = device.type == 'cuda'
     
     # Pre-allocate pinned memory buffers for lower-latency GPU transfers
     if use_cuda:
-        pin_img = torch.empty(1, 1, 30, 60, dtype=torch.uint8).pin_memory()
+        if is_dual:
+            pin_img_l = torch.empty(1, 1, 30, 30, dtype=torch.uint8).pin_memory()
+            pin_img_r = torch.empty(1, 1, 30, 30, dtype=torch.uint8).pin_memory()
+        else:
+            pin_img = torch.empty(1, 1, 30, 60, dtype=torch.uint8).pin_memory()
         pin_wind = torch.empty(1, 2, dtype=torch.float32).pin_memory()
         pin_col = torch.empty(1, 1, dtype=torch.float32).pin_memory()
     
@@ -111,52 +192,140 @@ def run_episode(env, agent, device, dtype, render=False, render_skip=1):
         steps += 1
         total_reward += reward
         
-        if render and steps % render_skip == 0:
-            env.render()
-            maybe_show_cameras(obs)
+        # --- Record Robot Position and Collision ---
+        robot_pos = env._base_xy()
+        collision = obs["sensors"]["collision"]
+        trajectory.append([robot_pos[0], robot_pos[1], int(collision)])
+        # --------------------------------------------
+        
+        # if render and steps % render_skip == 0:
+        #     env.render()
+        #     maybe_show_cameras(obs)
         
         # CPU preprocessing (matches training pipeline)
-        xs_cpu = preprocess_obs_cpu(obs, dtype=np_dtype)
+        xs_cpu = preprocess_fn(obs, dtype=np_dtype, vision=vision)
         
         # Transfer to GPU
         if use_cuda:
-            pin_img[0] = torch.from_numpy(xs_cpu["img"])
+            if is_dual:
+                pin_img_l[0] = torch.from_numpy(xs_cpu["img_left"])
+                pin_img_r[0] = torch.from_numpy(xs_cpu["img_right"])
+            else:
+                pin_img[0] = torch.from_numpy(xs_cpu["img"])
             pin_wind[0] = torch.from_numpy(xs_cpu["wind_direction"])
             pin_col[0] = torch.from_numpy(xs_cpu["collision"])
-            xs_gpu = {
-                "img": pin_img.to(device, non_blocking=True),
-                "wind_direction": pin_wind.to(device, non_blocking=True),
-                "collision": pin_col.to(device, non_blocking=True),
-            }
+            if is_dual:
+                xs_gpu = {
+                    "img_left": pin_img_l.to(device, non_blocking=True),
+                    "img_right": pin_img_r.to(device, non_blocking=True),
+                    "wind_direction": pin_wind.to(device, non_blocking=True),
+                    "collision": pin_col.to(device, non_blocking=True),
+                }
+            else:
+                xs_gpu = {
+                    "img": pin_img.to(device, non_blocking=True),
+                    "wind_direction": pin_wind.to(device, non_blocking=True),
+                    "collision": pin_col.to(device, non_blocking=True),
+                }
         else:
-            xs_gpu = {
-                "img": torch.from_numpy(xs_cpu["img"]).unsqueeze(0).to(device),
-                "wind_direction": torch.from_numpy(xs_cpu["wind_direction"]).unsqueeze(0).to(device, dtype=dtype),
-                "collision": torch.from_numpy(xs_cpu["collision"]).unsqueeze(0).to(device, dtype=dtype),
-            }
+            if is_dual:
+                xs_gpu = {
+                    "img_left": torch.from_numpy(xs_cpu["img_left"]).unsqueeze(0).to(device),
+                    "img_right": torch.from_numpy(xs_cpu["img_right"]).unsqueeze(0).to(device),
+                    "wind_direction": torch.from_numpy(xs_cpu["wind_direction"]).unsqueeze(0).to(device, dtype=dtype),
+                    "collision": torch.from_numpy(xs_cpu["collision"]).unsqueeze(0).to(device, dtype=dtype),
+                }
+            else:
+                xs_gpu = {
+                    "img": torch.from_numpy(xs_cpu["img"]).unsqueeze(0).to(device),
+                    "wind_direction": torch.from_numpy(xs_cpu["wind_direction"]).unsqueeze(0).to(device, dtype=dtype),
+                    "collision": torch.from_numpy(xs_cpu["collision"]).unsqueeze(0).to(device, dtype=dtype),
+                }
         
         # Inference step
         with torch.no_grad():
             h, action = agent.step(h, None, x=xs_gpu)
-            
+
+        # --- Capture activations ---
+        if recorder is not None:
+            internal_state_snapshots.append(recorder.snapshot())
+        # ----------------------------
+
         action_exec = action.squeeze(0).cpu().numpy()
         
         if done or trunc:
             break
-            
-    return info, total_reward, steps
+    
+    # --- Save Trajectory ---
+    if save_dir is not None:
+        traj_file = os.path.join(save_dir, f"trajectory_{episode_idx}.csv")
+        with open(traj_file, "w", newline="") as f:
+            writer = csv.writer(f)
+            writer.writerow(["step", "x", "y", "collision"])
+            for i, row in enumerate(trajectory):
+                writer.writerow([i, row[0], row[1], row[2]])
+    # -----------------------
+
+    # --- Save Internal States ---
+    if recorder is not None:
+        recorder.remove()
+        if internal_state_snapshots:
+            # Stack per-module arrays across timesteps: {name: (T, ...)}
+            all_keys = internal_state_snapshots[0].keys()
+            stacked = {k: np.stack([s[k] for s in internal_state_snapshots], axis=0)
+                       for k in all_keys}
+            is_file = os.path.join(save_dir, f"internal_states_{episode_idx}.npz")
+            np.savez_compressed(is_file, **stacked)
+            print(f"[io] Saved internal states to {is_file}")
+            for k, v in stacked.items():
+                print(f"     {k}: {v.shape}")
+    # ----------------------------
+
+    # --- Determine Goal Reached ---
+    final_xy = env._base_xy()
+    final_dist = float(np.linalg.norm(env._goal_xy - final_xy))
+    goal_reached = final_dist < env.goal_radius
+    # ------------------------------
+
+    return info, total_reward, steps, goal_reached, goal_xy
+
+def _detect_model_type(filename: str) -> str:
+    """Infer model_type from checkpoint filename."""
+    name = filename.lower()
+    if "dual_mobilenet" in name:
+        return "dual_mobilenet"
+    elif "dual_efficientnet" in name:
+        return "dual_efficientnet"
+    elif "mobilenet" in name:
+        return "mobilenet"
+    else:
+        return "efficientnet"
+
+def _build_agent(model_type: str, device, dtype):
+    """Construct the correct agent class for a given model_type."""
+    common = dict(action_dim=2, hidden_size=256, dtype=dtype)
+    if model_type == "efficientnet":
+        agent = EfficientNetAgent(**common)
+    elif model_type == "mobilenet":
+        agent = MobileNetAgent(**common)
+    elif model_type == "dual_efficientnet":
+        agent = DualBackboneAgent(backbone_type="efficientnet", **common)
+    elif model_type == "dual_mobilenet":
+        agent = DualBackboneAgent(backbone_type="mobilenet", **common)
+    else:
+        raise ValueError(f"Unknown model type: {model_type}")
+    return agent.to(device=device, dtype=dtype)
 
 def main():
     
-    # --- Configuration ---
-    # checkpoint_path = os.path.join(CHECKPOINT_DIR, "efficientnet_dagger_final.pt")
-    # model_type = "efficientnet" 
-    
-    checkpoint_path = os.path.join(CHECKPOINT_DIR, "efficientnet_dagger_final.pt")
+    checkpoint_path = os.path.join(CHECKPOINT_DIR, "efficientnet_dagger_final_robust.pt")
     model_type = "efficientnet"
+    vision = [True, True]
 
-    episodes = 1000
-    render = True
+    episodes = 500
+    render = False
+    # Internal State Recording Config
+    save_internal_state_episodes = []  # e.g., [1, 5, 10] to save those episodes
     # ---------------------
     
     device = get_device()
@@ -170,11 +339,8 @@ def main():
         if available:
             print(f"Found checkpoints: {available}")
             checkpoint_path = os.path.join(CHECKPOINT_DIR, available[0])
-            print(f"Defaulting to {checkpoint_path}")
-            if "mobilenet" in checkpoint_path:
-                model_type = "mobilenet"
-            else:
-                model_type = "efficientnet"
+            model_type = _detect_model_type(available[0])
+            print(f"Defaulting to {checkpoint_path} (detected type: {model_type})")
         else:
             print(f"No checkpoints found in {CHECKPOINT_DIR}/. Exiting.")
             return
@@ -193,20 +359,7 @@ def main():
     
     # 2. Initialize Agent
     print(f"Initializing {model_type} agent...")
-    if model_type == "efficientnet":
-        agent = EfficientNetAgent(
-            action_dim=2,
-            hidden_size=256,
-            dtype=DTYPE
-        ).to(device=device, dtype=DTYPE)
-    elif model_type == "mobilenet":
-        agent = MobileNetAgent(
-            action_dim=2,
-            hidden_size=256,
-            dtype=DTYPE
-        ).to(device=device, dtype=DTYPE)
-    else:
-        raise ValueError(f"Unknown model type: {model_type}")
+    agent = _build_agent(model_type, device, DTYPE)
         
     # 3. Load Checkpoint
     print(f"Loading checkpoint: {checkpoint_path}")
@@ -214,40 +367,70 @@ def main():
     agent.load_state_dict(checkpoint)
     agent.eval()
 
-    # 4. Run Loop
+    # 4. Prepare data directory
+    timestr = time.strftime("%Y%m%d-%H%M%S")
+    save_dir = os.path.join("eval_data", f"vision_{model_type}_{timestr}")
+    os.makedirs(save_dir, exist_ok=True)
+    print(f"[main] Saving episode data to: {save_dir}")
+
+    # 5. Run Loop
     success_count = 0
     distances = []
+    episode_summaries = []
     
     print(f"Running {episodes} episodes...")
     
     render_skip = 1
     
     try:
-        for i in range(episodes):
-            print(f"Episode {i+1}/{episodes}...", end=" ", flush=True)
+        for i in range(episodes):#(52,53):#
+            ep = i + 1
+            print(f"Episode {ep}/{episodes}...", end=" ", flush=True)
             
-            info, reward, steps = run_episode(env, agent, device, DTYPE, render, render_skip)
+            info, reward, steps, goal_reached, goal_xy = run_episode(
+                env, agent, device, DTYPE, render, render_skip,
+                episode_idx=ep, save_dir=save_dir, seed=ep, vision=vision,
+                save_internal_states=(ep in save_internal_state_episodes),
+            )
             
-            # Check success (dist_to_goal < goal_radius which is 0.8)
             dist = info["dist_to_goal"]
-            is_success = dist < 0.8
-            status = "SUCCESS" if is_success else "FAIL"
+            status = "SUCCESS" if goal_reached else "FAIL"
             if info.get("stalled"): status = "STALLED"
             
-            print(f"[{status}] Steps: {steps}, Reward: {reward:.2f}, Final Dist: {dist:.2f}")
+            print(
+                f"[{status}] Steps: {steps}, Reward: {reward:.2f}, Final Dist: {dist:.2f} "
+                f"| goal=({goal_xy[0]:.2f}, {goal_xy[1]:.2f})"
+            )
             
-            if is_success:
+            if goal_reached:
                 success_count += 1
             distances.append(dist)
+            episode_summaries.append({
+                "episode": ep,
+                "goal_x": goal_xy[0],
+                "goal_y": goal_xy[1],
+                "goal_reached": goal_reached,
+                "return": reward,
+                "steps": steps,
+                "final_dist": dist,
+            })
             
     except KeyboardInterrupt:
         print("\nInterrupted by user.")
     finally:
+        # --- Save Episode Summary CSV ---
+        summary_file = os.path.join(save_dir, "episode_summary.csv")
+        with open(summary_file, "w", newline="") as f:
+            writer = csv.DictWriter(f, fieldnames=["episode", "goal_x", "goal_y", "goal_reached", "return", "steps", "final_dist"])
+            writer.writeheader()
+            writer.writerows(episode_summaries)
+        print(f"[main] Episode summary saved to: {summary_file}")
+        # --------------------------------
         env.close()
         if render and cv2 is not None:
              cv2.destroyAllWindows()
              
-    # 5. Summary
+    # 6. Summary
     if len(distances) > 0:
         print("\n--- Summary ---")
         print(f"Success Rate: {success_count}/{len(distances)} ({success_count/len(distances)*100:.1f}%)")

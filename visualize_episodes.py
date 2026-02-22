@@ -5,7 +5,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import csv
 
-def visualize_episode(obs_file, traj_file, output_file):
+def visualize_episode(obs_file, traj_file, output_file, target_x=None, target_y=None):
     """
     Visualizes a single episode.
     """
@@ -59,14 +59,19 @@ def visualize_episode(obs_file, traj_file, output_file):
     # Start and End points
     ax.plot(trajectory[0, 0], trajectory[0, 1], "go", label="Start", markersize=8)
     ax.plot(trajectory[-1, 0], trajectory[-1, 1], "ro", label="End", markersize=8)
+
+    # Target position
+    if target_x is not None and target_y is not None:
+        ax.plot(target_x, target_y, "m*", label="Target", markersize=14)
     
     # Settings
     ax.set_aspect("equal")
-    ax.set_xlim(-arena_half_extent - 1, arena_half_extent + 1)
-    ax.set_ylim(-arena_half_extent - 1, arena_half_extent + 1)
-    ax.set_title(f"Episode Visualization\n{os.path.basename(traj_file)}")
-    ax.legend(loc="upper right")
-    ax.grid(True, linestyle="--", alpha=0.3)
+    ax.set_xlim(-arena_half_extent - 0.1, arena_half_extent + 0.1)
+    ax.set_ylim(-arena_half_extent - 0.1, arena_half_extent + 0.1)
+    # ax.set_title(f"Episode Visualization\n{os.path.basename(traj_file)}")
+    # ax.legend(loc="upper right")
+    ax.grid(False, linestyle="--", alpha=0.3)
+    ax.axis('off')
     
     # 4. Save
     plt.savefig(output_file, dpi=100)
@@ -75,10 +80,23 @@ def visualize_episode(obs_file, traj_file, output_file):
 
 def main():
    
-    target_dir = "eval_data/run_20260210-124542"
+    target_dir = "eval_data/vision_efficientnet_robust_blind"
     if not os.path.exists(target_dir):
         print(f"Directory not found: {target_dir}")
         return
+
+    # Load episode summary for target positions
+    summary_file = os.path.join(target_dir, "episode_summary.csv")
+    goal_positions = {}  # ep_id -> (goal_x, goal_y)
+    if os.path.exists(summary_file):
+        with open(summary_file, "r") as f:
+            reader = csv.DictReader(f)
+            for row in reader:
+                ep_id = int(row["episode"])
+                goal_positions[ep_id] = (float(row["goal_x"]), float(row["goal_y"]))
+        print(f"Loaded {len(goal_positions)} goal positions from episode_summary.csv")
+    else:
+        print(f"Warning: {summary_file} not found, targets will not be drawn.")
 
     # Find pairs of obstacle and trajectory files
     # Assuming naming convention: obstacles_N.txt and trajectory_N.csv
@@ -107,8 +125,10 @@ def main():
         if not os.path.exists(obs_file):
             print(f"Missing obstacle file for episode {ep_id}: {obs_file}")
             continue
-            
-        visualize_episode(obs_file, traj_file, output_file)
+
+        # Get target position for this episode
+        target_x, target_y = goal_positions.get(ep_id, (None, None))
+        visualize_episode(obs_file, traj_file, output_file, target_x, target_y)
 
 if __name__ == "__main__":
     main()

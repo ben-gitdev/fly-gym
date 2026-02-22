@@ -261,3 +261,6 @@ class MobileNetAgent(nn.Module):
         y_out[..., 1] = math.pi * torch.tanh(y_out[..., 1])
         
         return h, y_out, None # dummy dn_seq
+
+    def reset_vision_state(self):
+        pass # No persistent vision state to reset (like alpha filters)

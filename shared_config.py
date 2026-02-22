@@ -44,7 +44,7 @@ WIND_SENSING_CSV = "connectomes/drosophila adult connectome/JO-C_and_JO-E.csv"
 # -----------------------------
 ENV_WIDTH = 128
 ENV_HEIGHT = 128
-MAX_EPISODE_STEPS = 500
+MAX_EPISODE_STEPS = 600
 N_OBSTACLES = 20
 ARENA_HALF_EXTENT = 7.0
 RENDER_MODE = None

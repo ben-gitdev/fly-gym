@@ -348,10 +348,14 @@ def build_connectome_cell(
     return cell, pr_positions, input_splits, id2idx
 
 
-def obs_to_torch(obs: Dict, device: torch.device, dtype: torch.dtype) -> Dict:
+def obs_to_torch(obs: Dict, device: torch.device, dtype: torch.dtype, vision: List[bool] = [True, True]) -> Dict:
     """Convert environment observation dict to torch tensors."""
     cam_left = torch.from_numpy(obs["cam_left"]).permute(2, 0, 1).unsqueeze(0).to(device=device)
     cam_right = torch.from_numpy(obs["cam_right"]).permute(2, 0, 1).unsqueeze(0).to(device=device)
+    if not vision[0]:
+        cam_left = torch.zeros_like(cam_left)
+    if not vision[1]:
+        cam_right = torch.zeros_like(cam_right)
     sensors_np = obs["sensors"]
     vec_to_goal = torch.as_tensor(
         sensors_np["vec_to_goal"], device=device, dtype=dtype

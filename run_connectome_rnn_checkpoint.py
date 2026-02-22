@@ -49,12 +49,12 @@ from train_connectome_rnn_rl import CTRL_PENALTY, TIME_PENALTY, PROG_SCALE, GOAL
 from core.utils import build_connectome_cell, obs_to_torch
 
 
-EDGE_PATH = "connectomes/drosophila adult connectome/connections_princeton_random.csv"
-CHECKPOINT = "checkpoints/connectome_rnn_dagger_princeton_random.pt"
-# EDGE_PATH = "connectomes/drosophila adult connectome/connections_princeton.csv"
-# CHECKPOINT = "checkpoints/connectome_rnn_dagger_princeton.pt"
-RECORD_CSV = "connectomes/drosophila adult connectome/moonwalker_descending_neurons.csv"       # e.g., "neurons_to_record.csv"
-OVERWRITE_CSV = "connectomes/drosophila adult connectome/moonwalker_descending_neurons.csv"    # e.g., "neurons_to_overwrite.csv"
+# EDGE_PATH = "connectomes/drosophila adult connectome/connections_princeton_random.csv"
+# CHECKPOINT = "checkpoints/connectome_rnn_dagger_princeton_random.pt"
+EDGE_PATH = "connectomes/drosophila adult connectome/connections_princeton.csv"
+CHECKPOINT = "checkpoints/connectome_rnn_dagger_princeton.pt"
+RECORD_CSV = None#"connectomes/drosophila adult connectome/moonwalker_neurons.csv"       # e.g., "neurons_to_record.csv"
+OVERWRITE_CSV = None#"connectomes/drosophila adult connectome/moonwalker_neurons.csv"    # e.g., "neurons_to_overwrite.csv"
 END_ON_COLLISION = False
 MAX_EPISODE_STEPS = 600
 
@@ -201,14 +201,21 @@ def rollout_episode(
     overwrite_values: Optional[torch.Tensor] = None,
     overwrite_interval: int = 1,
     overwrite_steps: int = 1,
-) -> Tuple[float, int, bool, bool]:
+    seed: Optional[int] = None,
+    vision: List[bool] = [True, True],
+    save_hidden_states: bool = False,
+) -> Tuple[float, int, bool, bool, bool, np.ndarray]:
     if record_indices is None:
         record_indices = []
     if overwrite_indices is None:
         overwrite_indices = []
     
-    obs, _ = env.reset()
+    obs, _ = env.reset(seed=seed)
     
+    # --- Record Goal Location ---
+    goal_xy = env._goal_xy.copy()
+    # --------------------------
+
     # --- Record Obstacles ---
     # env._obstacle_xy is (N, 2)
     # We only care about the active obstacles
@@ -227,13 +234,14 @@ def rollout_episode(
     
     trajectory = []
     recorded_activity = []
+    hidden_states_list = []
 
     while not (done or trunc):
         # Update teacher path visualization (side effect on env)
         if show_path:
             _ = teacher.act(env)
 
-        obs_t = obs_to_torch(obs, device=device, dtype=dtype)
+        obs_t = obs_to_torch(obs, device=device, dtype=dtype, vision=vision)
         h, action = agent.step(h, obs_t)
         
         # --- Overwrite Neuron Activity AFTER step to clamp values ---
@@ -246,6 +254,10 @@ def rollout_episode(
             with torch.no_grad():
                 act = h[:, record_indices].cpu().numpy().flatten()
                 recorded_activity.append(act)
+
+        # --- Save full hidden state ---
+        if save_hidden_states:
+            hidden_states_list.append(h.squeeze(0).cpu().numpy())
 
         action_np = action.squeeze(0).cpu().numpy()
 
@@ -278,7 +290,21 @@ def rollout_episode(
         np.savetxt(act_file, np.array(recorded_activity), fmt="%.6f", delimiter=",")
     # -----------------------
 
-    return ep_ret, steps, bool(done), bool(trunc)
+    # --- Save Hidden States ---
+    if hidden_states_list:
+        hs_file = os.path.join(save_dir, f"hidden_states_{episode_idx}.npy")
+        np.save(hs_file, np.stack(hidden_states_list))  # shape (T, N)
+        print(f"[io] Saved hidden states to {hs_file} "
+              f"(shape={len(hidden_states_list)}x{hidden_states_list[0].shape[0]})")
+    # --------------------------
+
+    # --- Determine Goal Reached ---
+    final_xy = env._base_xy()
+    final_dist = float(np.linalg.norm(env._goal_xy - final_xy))
+    goal_reached = final_dist < env.goal_radius
+    # ------------------------------
+
+    return ep_ret, steps, bool(done), bool(trunc), bool(goal_reached), goal_xy
 
 
 
@@ -288,8 +314,9 @@ def main():
     
     # --- Configuration ---
     checkpoint = CHECKPOINT
-    episodes = 100
+    episodes = 500
     render_mode = "human" # Set to None for faster headless run
+    vision = [False, False]
     
     # Neuron Manipulation Config
     record_csv = RECORD_CSV #"connectomes/drosophila adult connectome/moonwalker_descending_neurons.csv"       # e.g., "neurons_to_record.csv"
@@ -297,6 +324,8 @@ def main():
     overwrite_val = 0.8
     overwrite_int = 150
     overwrite_steps = 80
+    # Hidden State Recording Config
+    save_hidden_state_episodes = []  # e.g., [1, 5, 10] to save those episodes
     # ---------------------
 
     env = _make_env(render_mode=render_mode, n_obstacles=20)
@@ -324,13 +353,14 @@ def main():
 
     # Prepare data directory
     timestr = time.strftime("%Y%m%d-%H%M%S")
-    save_dir = os.path.join("eval_data", f"run_{timestr}")
+    save_dir = os.path.join("eval_data", f"connectome_rnn_{timestr}")
     os.makedirs(save_dir, exist_ok=True)
     print(f"[main] Saving episode data to: {save_dir}")
 
+    episode_summaries = []
     try:
-        for ep in range(1, episodes + 1):
-            ret, steps, done, trunc = rollout_episode(
+        for ep in range(1, episodes + 1):#(53, 54):#
+            ret, steps, done, trunc, goal_reached, goal_xy = rollout_episode(
                 env, agent, teacher, device=device, dtype=dtype, 
                 render=render_mode == "human", show_path=False,
                 episode_idx=ep, save_dir=save_dir,
@@ -339,11 +369,34 @@ def main():
                 overwrite_values=overwrite_values,
                 overwrite_interval=overwrite_int,
                 overwrite_steps=overwrite_steps,
+                seed=ep,
+                vision=vision,
+                save_hidden_states=(ep in save_hidden_state_episodes),
             )
+            episode_summaries.append({
+                "episode": ep,
+                "goal_x": goal_xy[0],
+                "goal_y": goal_xy[1],
+                "goal_reached": goal_reached,
+                "return": ret,
+                "steps": steps,
+                "done": done,
+                "trunc": trunc,
+            })
             print(
-                f"[eval] episode {ep}/{episodes} | return={ret:.3f} | steps={steps} | done={done} | trunc={trunc}"
+                f"[eval] episode {ep}/{episodes} | return={ret:.3f} | steps={steps} "
+                f"| done={done} | trunc={trunc} | goal_reached={goal_reached} "
+                f"| goal=({goal_xy[0]:.2f}, {goal_xy[1]:.2f})"
             )
     finally:
+        # --- Save Episode Summary CSV ---
+        summary_file = os.path.join(save_dir, "episode_summary.csv")
+        with open(summary_file, "w", newline="") as f:
+            writer = csv.DictWriter(f, fieldnames=["episode", "goal_x", "goal_y", "goal_reached", "return", "steps", "done", "trunc"])
+            writer.writeheader()
+            writer.writerows(episode_summaries)
+        print(f"[main] Episode summary saved to: {summary_file}")
+        # --------------------------------
         env.close()
 
 

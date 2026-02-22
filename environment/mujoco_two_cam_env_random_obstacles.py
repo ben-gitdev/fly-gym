@@ -59,7 +59,7 @@ class MuJoCoTwoCamEnv(gym.Env):
                  time_penalty=5e-3,
                  prog_scale=5.0,
                  frame_skip=10,
-                 stall_threshold=0.01,
+                 stall_threshold=0.002,
                  stall_limit=50,
                  end_on_collision=False):
         super().__init__()

@@ -9,7 +9,7 @@ from __future__ import annotations
 import time as _time
 import os
 import csv
-
+import cv2
 import numpy as np
 import torch
 
@@ -18,6 +18,7 @@ from environment.mujoco_two_cam_env_random_obstacles import MuJoCoTwoCamEnv
 from agents.teacher_analytic_agent import PlannerAnalyticTeacher
 from agents.efficientnet_agent import EfficientNetAgent
 from agents.mobilenet_agent import MobileNetAgent
+from agents.dual_backbone_agent import DualBackboneAgent
 from core.utils import get_device
 
 # -----------------------------
@@ -60,6 +61,11 @@ BETA_WARMUP = 0  # Number of iterations to keep beta=1.0 at start
 
 STEERING_LOSS_SCALE = 2.0  # Prioritize steering accuracy over velocity
 
+# Camera dropout probabilities (per-chunk in each batch)
+CAM_DROP_LEFT  = 0.20   # Probability of blacking out left camera only
+CAM_DROP_RIGHT = 0.20   # Probability of blacking out right camera only
+CAM_DROP_BOTH  = 0.20   # Probability of blacking out both cameras
+
 NOISE_INTERVAL = 10
 START_NOISE = 0.5
 NOISE_DECAY = 0.2
@@ -99,6 +105,20 @@ AGENT_REGISTRY = {
         "label": "MobileNetV3-Large",
         "checkpoint_prefix": "mobilenet_dagger",
         "loss_csv": "mobilenet_dagger_loss.csv",
+    },
+    "dual_efficientnet": {
+        "class": DualBackboneAgent,
+        "label": "Dual-EfficientNet-B0",
+        "checkpoint_prefix": "dual_efficientnet_dagger",
+        "loss_csv": "dual_efficientnet_dagger_loss.csv",
+        "backbone_type": "efficientnet",
+    },
+    "dual_mobilenet": {
+        "class": DualBackboneAgent,
+        "label": "Dual-MobileNetV3-Large",
+        "checkpoint_prefix": "dual_mobilenet_dagger",
+        "loss_csv": "dual_mobilenet_dagger_loss.csv",
+        "backbone_type": "mobilenet",
     },
 }
 
@@ -528,48 +548,52 @@ def save_checkpoint(agent, iter_idx, checkpoint_prefix):
 
 
 
-def preprocess_obs_cpu(obs, dtype=np.float32):
-    """
-    Process observation on CPU to minimize GPU transfer overhead.
-    Resizes images to 30x30, converts to grayscale, stacks them, and merges sensors.
-    Returns dict of numpy arrays ready for efficient transfer.
-    """
-    # 1. Image Processing (CPU OpenCV)
-    # Resize 128x128 -> 30x30
-    left_small = cv2.resize(obs["cam_left"], (30, 30), interpolation=cv2.INTER_AREA)
-    right_small = cv2.resize(obs["cam_right"], (30, 30), interpolation=cv2.INTER_AREA)
-    
-    # Grayscale conversion (BS: using explicit weights for consistency with agent, or just cv2)
-    # Agent uses: 0.299R + 0.587G + 0.114B. cv2.COLOR_RGB2GRAY uses same coefficients.
-    left_gray = cv2.cvtColor(left_small, cv2.COLOR_RGB2GRAY)
-    right_gray = cv2.cvtColor(right_small, cv2.COLOR_RGB2GRAY)
-    
-    # Format: (1, H, W_combined) -> (1, 30, 60)
-    # Stack horizontally
-    combined = np.hstack([left_gray, right_gray])
-    
-    # Add channel dim (1, 30, 60)
-    img_out = combined[np.newaxis, :, :] 
-    
-    # 2. Sensor Processing
+def _preprocess_sensors(obs, dtype=np.float32):
+    """Shared sensor preprocessing for all agent types."""
     sensors = obs["sensors"]
     wind_dir = sensors.get("wind_direction", np.zeros(2, dtype=dtype))
-         
     col = sensors.get("collision", np.array([0.0], dtype=dtype))
-    
-    
-    # Ensure correct shapes for batch dim later (though we add batch dim in loop)
-    # Agent expects: wind_direction (2,), collision (1,) for single sample
     wind_dir = np.asarray(wind_dir, dtype=dtype)
     col = np.asarray(col, dtype=dtype)
-    
     if wind_dir.ndim == 0: wind_dir = np.expand_dims(wind_dir, axis=0)
     if col.ndim == 0: col = np.expand_dims(col, axis=0)
-    
+    return wind_dir.astype(dtype), col.astype(dtype)
+
+def preprocess_obs_cpu(obs, dtype=np.float32):
+    """
+    Process observation on CPU (single-backbone agents).
+    Returns dict with combined 'img' (1, 30, 60).
+    """
+    left_small = cv2.resize(obs["cam_left"], (30, 30), interpolation=cv2.INTER_AREA)
+    right_small = cv2.resize(obs["cam_right"], (30, 30), interpolation=cv2.INTER_AREA)
+    left_gray = cv2.cvtColor(left_small, cv2.COLOR_RGB2GRAY)
+    right_gray = cv2.cvtColor(right_small, cv2.COLOR_RGB2GRAY)
+    combined = np.hstack([left_gray, right_gray])
+    img_out = combined[np.newaxis, :, :]
+    wind_dir, col = _preprocess_sensors(obs, dtype)
     return {
-        "img": img_out.astype(np.uint8), # Keep as uint8 to save bandwidth
-        "wind_direction": wind_dir.astype(dtype),
-        "collision": col.astype(dtype)
+        "img": img_out.astype(np.uint8),
+        "wind_direction": wind_dir,
+        "collision": col,
+    }
+
+def preprocess_obs_cpu_dual(obs, dtype=np.float32):
+    """
+    Process observation on CPU (dual-backbone agents).
+    Returns dict with separate 'img_left' and 'img_right' (each 1, 30, 30).
+    """
+    left_small = cv2.resize(obs["cam_left"], (30, 30), interpolation=cv2.INTER_AREA)
+    right_small = cv2.resize(obs["cam_right"], (30, 30), interpolation=cv2.INTER_AREA)
+    left_gray = cv2.cvtColor(left_small, cv2.COLOR_RGB2GRAY)
+    right_gray = cv2.cvtColor(right_small, cv2.COLOR_RGB2GRAY)
+    img_left = left_gray[np.newaxis, :, :]
+    img_right = right_gray[np.newaxis, :, :]
+    wind_dir, col = _preprocess_sensors(obs, dtype)
+    return {
+        "img_left": img_left.astype(np.uint8),
+        "img_right": img_right.astype(np.uint8),
+        "wind_direction": wind_dir,
+        "collision": col,
     }
 
 def forward_policy_sequence(agent, xs):
@@ -655,6 +679,8 @@ def rollout_and_collect_balanced(
     need_student = beta < 1.0
     np_dtype = np.float32 if dtype == torch.float32 else np.float16
     use_cuda = device.type == 'cuda'
+    is_dual = isinstance(agent, DualBackboneAgent)
+    preprocess_fn = preprocess_obs_cpu_dual if is_dual else preprocess_obs_cpu
 
     total_chunks = {'straight': 0, 'turn': 0, 'collision': 0, 'pre_collision': 0, 'start': 0}
     episodes_done = 0
@@ -677,11 +703,16 @@ def rollout_and_collect_balanced(
         h = torch.zeros(n_envs, agent.hidden_size, device=device, dtype=dtype)
         if use_cuda:
             # Opt #4: Pre-allocated pinned memory for CPU→GPU input transfers
-            pin_imgs  = torch.empty(n_envs, 1, 30, 60, dtype=torch.uint8).pin_memory()
+            if is_dual:
+                pin_imgs_l = torch.empty(n_envs, 1, 30, 30, dtype=torch.uint8).pin_memory()
+                pin_imgs_r = torch.empty(n_envs, 1, 30, 30, dtype=torch.uint8).pin_memory()
+                pin_imgs_l_np = pin_imgs_l.numpy()
+                pin_imgs_r_np = pin_imgs_r.numpy()
+            else:
+                pin_imgs  = torch.empty(n_envs, 1, 30, 60, dtype=torch.uint8).pin_memory()
+                pin_imgs_np  = pin_imgs.numpy()
             pin_winds = torch.empty(n_envs, 2, dtype=torch.float32).pin_memory()
             pin_cols  = torch.empty(n_envs, 1, dtype=torch.float32).pin_memory()
-            # Numpy views into pinned buffers (zero-copy fill)
-            pin_imgs_np  = pin_imgs.numpy()
             pin_winds_np = pin_winds.numpy()
             pin_cols_np  = pin_cols.numpy()
             # Opt #1: Pre-allocated pinned memory for GPU→CPU result transfer
@@ -706,7 +737,7 @@ def rollout_and_collect_balanced(
             obs_list[i] = obs
             steps[i] += 1
             raw_obs_buf[i].append(obs)
-            proc_obs_buf[i].append(preprocess_obs_cpu(obs, dtype=np_dtype))
+            proc_obs_buf[i].append(preprocess_fn(obs, dtype=np_dtype))
 
         # 2. Launch GPU inference ASYNC (Opt #5 - overlaps with teacher planning)
         #    Exclude done/trunc envs from GPU work; teacher-invalidated envs are
@@ -719,17 +750,33 @@ def rollout_and_collect_balanced(
             if use_cuda:
                 # Opt #4: Fill pinned buffers via numpy views (no intermediate tensors)
                 for idx, i in enumerate(gpu_ids):
-                    pin_imgs_np[idx]  = proc_obs_buf[i][-1]["img"]
+                    if is_dual:
+                        pin_imgs_l_np[idx] = proc_obs_buf[i][-1]["img_left"]
+                        pin_imgs_r_np[idx] = proc_obs_buf[i][-1]["img_right"]
+                    else:
+                        pin_imgs_np[idx]  = proc_obs_buf[i][-1]["img"]
                     pin_winds_np[idx] = proc_obs_buf[i][-1]["wind_direction"]
                     pin_cols_np[idx]  = proc_obs_buf[i][-1]["collision"]
-                imgs_gpu  = pin_imgs[:n_gpu].to(device, non_blocking=True)
+                if is_dual:
+                    imgs_l_gpu = pin_imgs_l[:n_gpu].to(device, non_blocking=True)
+                    imgs_r_gpu = pin_imgs_r[:n_gpu].to(device, non_blocking=True)
+                else:
+                    imgs_gpu  = pin_imgs[:n_gpu].to(device, non_blocking=True)
                 winds_gpu = pin_winds[:n_gpu].to(device, dtype=dtype, non_blocking=True)
                 cols_gpu  = pin_cols[:n_gpu].to(device, dtype=dtype, non_blocking=True)
             else:
                 # Non-CUDA fallback (original style)
-                imgs_gpu = torch.from_numpy(
-                    np.stack([proc_obs_buf[i][-1]["img"] for i in gpu_ids])
-                ).to(device)
+                if is_dual:
+                    imgs_l_gpu = torch.from_numpy(
+                        np.stack([proc_obs_buf[i][-1]["img_left"] for i in gpu_ids])
+                    ).to(device)
+                    imgs_r_gpu = torch.from_numpy(
+                        np.stack([proc_obs_buf[i][-1]["img_right"] for i in gpu_ids])
+                    ).to(device)
+                else:
+                    imgs_gpu = torch.from_numpy(
+                        np.stack([proc_obs_buf[i][-1]["img"] for i in gpu_ids])
+                    ).to(device)
                 winds_gpu = torch.from_numpy(
                     np.stack([proc_obs_buf[i][-1]["wind_direction"] for i in gpu_ids])
                 ).to(device, dtype=dtype)
@@ -737,7 +784,11 @@ def rollout_and_collect_balanced(
                     np.stack([proc_obs_buf[i][-1]["collision"] for i in gpu_ids])
                 ).to(device, dtype=dtype)
 
-            xs_gpu = {"img": imgs_gpu, "wind_direction": winds_gpu, "collision": cols_gpu}
+            if is_dual:
+                xs_gpu = {"img_left": imgs_l_gpu, "img_right": imgs_r_gpu,
+                          "wind_direction": winds_gpu, "collision": cols_gpu}
+            else:
+                xs_gpu = {"img": imgs_gpu, "wind_direction": winds_gpu, "collision": cols_gpu}
 
             # Opt #2: GPU index tensor for h gather/scatter
             gpu_idx_tensor = torch.tensor(gpu_ids, device=device, dtype=torch.long)
@@ -885,6 +936,61 @@ def rollout_and_collect_balanced(
     return total_chunks
 
 
+def apply_camera_dropout(xs, p_left=CAM_DROP_LEFT, p_right=CAM_DROP_RIGHT, p_both=CAM_DROP_BOTH):
+    """
+    Apply camera dropout to a batch of observations *in-place*.
+
+    For each chunk (along the B dimension), randomly assign one of:
+      - left camera blacked out  (probability p_left)
+      - right camera blacked out (probability p_right)
+      - both cameras blacked out (probability p_both)
+      - no dropout               (remaining probability)
+
+    Supports both single-backbone ('img' key, left/right halves concatenated)
+    and dual-backbone ('img_left' / 'img_right' keys) layouts.
+    """
+    is_dual = "img_left" in xs
+
+    if is_dual:
+        B = xs["img_left"].shape[1]
+    else:
+        B = xs["img"].shape[1]
+
+    # Draw one uniform random per chunk and assign dropout category
+    rand_vals = np.random.rand(B)
+    # [0, p_left) -> drop left | [p_left, p_left+p_right) -> drop right
+    # [p_left+p_right, p_left+p_right+p_both) -> drop both | rest -> keep
+    thresh_left  = p_left
+    thresh_right = thresh_left + p_right
+    thresh_both  = thresh_right + p_both
+
+    drop_left_mask  = rand_vals < thresh_left
+    drop_right_mask = (rand_vals >= thresh_left) & (rand_vals < thresh_right)
+    drop_both_mask  = (rand_vals >= thresh_right) & (rand_vals < thresh_both)
+
+    # Combine masks: left should be zeroed for drop_left OR drop_both
+    zero_left  = drop_left_mask | drop_both_mask
+    zero_right = drop_right_mask | drop_both_mask
+
+    if is_dual:
+        # xs["img_left"]  shape: (T, B, 1, 30, 30)  (torch tensor)
+        # xs["img_right"] shape: (T, B, 1, 30, 30)
+        for b in range(B):
+            if zero_left[b]:
+                xs["img_left"][:, b] = 0
+            if zero_right[b]:
+                xs["img_right"][:, b] = 0
+    else:
+        # xs["img"] shape: (T, B, 1, 30, 60)  — left half [:30], right half [30:]
+        for b in range(B):
+            if zero_left[b]:
+                xs["img"][:, b, :, :, :30] = 0
+            if zero_right[b]:
+                xs["img"][:, b, :, :, 30:] = 0
+
+    return xs
+
+
 def train_step(agent, buffer, opt, accum_steps=GRAD_ACCUM_STEPS):
     """
     Single training step with gradient accumulation.
@@ -903,6 +1009,9 @@ def train_step(agent, buffer, opt, accum_steps=GRAD_ACCUM_STEPS):
         
         # xs is dict {'img': (T, B, 1, H, W) uint8, 'wind_direction': (T, B, 2) float, ...}
         # ys is (T, B, 2) float
+        
+        # Apply camera dropout augmentation
+        xs = apply_camera_dropout(xs)
         
         mu = forward_policy_sequence(agent, xs)
         
@@ -962,11 +1071,10 @@ def main():
     
     # Initialize Agent
     print(f"Initializing {agent_label} Agent...")
-    agent = AgentClass(
-        action_dim=2,
-        hidden_size=256,
-        dtype=dtype
-    ).to(device=device, dtype=dtype)
+    agent_kwargs = dict(action_dim=2, hidden_size=256, dtype=dtype)
+    if "backbone_type" in agent_cfg:
+        agent_kwargs["backbone_type"] = agent_cfg["backbone_type"]
+    agent = AgentClass(**agent_kwargs).to(device=device, dtype=dtype)
     
     # Resume from checkpoint if configured
     start_iter = 0
