@@ -45,3 +45,9 @@ Robot starts good, goes toward goal, sometimes shows obstacle avoidance behavior
 1. added floor checker board pattern
 2. changed connectome agent action velocity output from tanh() to 3xtanh() to enable robot to move faster
 3. changed recovery steps total from 85 to 55. 
+
+
+#############2026-02-23##############
+1. vectorized rollout in visionnet training code
+2. added internal state recording, and pca analysis of internal states
+3. added small world network generator

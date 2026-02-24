@@ -318,14 +318,14 @@ def _build_agent(model_type: str, device, dtype):
 
 def main():
     
-    checkpoint_path = os.path.join(CHECKPOINT_DIR, "efficientnet_dagger_final_robust.pt")
-    model_type = "efficientnet"
-    vision = [True, True]
+    checkpoint_path = os.path.join(CHECKPOINT_DIR, "mobilenet_dagger_final_full_vision.pt")
+    model_type = "mobilenet"
+    vision = [False, False]
 
     episodes = 500
     render = False
     # Internal State Recording Config
-    save_internal_state_episodes = []  # e.g., [1, 5, 10] to save those episodes
+    save_internal_state_episodes = [53]  # e.g., [1, 5, 10] to save those episodes
     # ---------------------
     
     device = get_device()
@@ -383,7 +383,7 @@ def main():
     render_skip = 1
     
     try:
-        for i in range(episodes):#(52,53):#
+        for i in range(52,53):#(episodes):#
             ep = i + 1
             print(f"Episode {ep}/{episodes}...", end=" ", flush=True)
             

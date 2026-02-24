@@ -40,7 +40,7 @@ from shared_config import (
 # DAgger Hyperparameters
 # -----------------------------
 
-AGENT = "efficientnet" # "efficientnet" or "mobilenet"
+AGENT = "mobilenet" # "efficientnet" or "mobilenet"
 
 N_DAGGER_ITERS = 4
 EPISODES_PER_ITER = 500

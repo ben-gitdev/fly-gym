@@ -32,8 +32,6 @@ from train_connectome_rnn_dagger import (
     N_OBSTACLES,
     PHOTORECEPTOR_LEFT_CSV,
     PHOTORECEPTOR_RIGHT_CSV,
-    OLFACTORY_LEFT_CSV,
-    OLFACTORY_RIGHT_CSV,
     TACTILE_LEFT_CSV,
     TACTILE_RIGHT_CSV,
     DESCENDING_NEURONS_CSV,
@@ -49,10 +47,12 @@ from train_connectome_rnn_rl import CTRL_PENALTY, TIME_PENALTY, PROG_SCALE, GOAL
 from core.utils import build_connectome_cell, obs_to_torch
 
 
+EDGE_PATH = "drosophila adult connectome/connections_princeton_random.csv"
+CHECKPOINT = "checkpoints/connectome_rnn_dagger_princeton_random_full_vision.pt"
 # EDGE_PATH = "connectomes/drosophila adult connectome/connections_princeton_random.csv"
-# CHECKPOINT = "checkpoints/connectome_rnn_dagger_princeton_random.pt"
-EDGE_PATH = "connectomes/drosophila adult connectome/connections_princeton.csv"
-CHECKPOINT = "checkpoints/connectome_rnn_dagger_princeton.pt"
+# CHECKPOINT = "checkpoints/connectome_rnn_dagger_princeton_random_full_vision.pt"
+# EDGE_PATH = "connectomes/drosophila adult connectome/connections_princeton.csv"
+# CHECKPOINT = "checkpoints/connectome_rnn_dagger_princeton.pt"
 RECORD_CSV = None#"connectomes/drosophila adult connectome/moonwalker_neurons.csv"       # e.g., "neurons_to_record.csv"
 OVERWRITE_CSV = None#"connectomes/drosophila adult connectome/moonwalker_neurons.csv"    # e.g., "neurons_to_overwrite.csv"
 END_ON_COLLISION = False
@@ -86,8 +86,6 @@ def _load_agent(checkpoint_path: str, device: torch.device, dtype: torch.dtype) 
         dtype=dtype,
         photoreceptor_left_csv=PHOTORECEPTOR_LEFT_CSV,
         photoreceptor_right_csv=PHOTORECEPTOR_RIGHT_CSV,
-        olfactory_left_csv=OLFACTORY_LEFT_CSV,
-        olfactory_right_csv=OLFACTORY_RIGHT_CSV,
         tactile_left_csv=TACTILE_LEFT_CSV,
         tactile_right_csv=TACTILE_RIGHT_CSV,
         descending_neurons_csv=DESCENDING_NEURONS_CSV,
@@ -315,8 +313,8 @@ def main():
     # --- Configuration ---
     checkpoint = CHECKPOINT
     episodes = 500
-    render_mode = "human" # Set to None for faster headless run
-    vision = [False, False]
+    render_mode = "human"# Set to None for faster headless run
+    vision = [False , False]
     
     # Neuron Manipulation Config
     record_csv = RECORD_CSV #"connectomes/drosophila adult connectome/moonwalker_descending_neurons.csv"       # e.g., "neurons_to_record.csv"
@@ -325,7 +323,7 @@ def main():
     overwrite_int = 150
     overwrite_steps = 80
     # Hidden State Recording Config
-    save_hidden_state_episodes = []  # e.g., [1, 5, 10] to save those episodes
+    save_hidden_state_episodes = [53]  # e.g., [1, 5, 53] to save those episodes
     # ---------------------
 
     env = _make_env(render_mode=render_mode, n_obstacles=20)
@@ -359,7 +357,7 @@ def main():
 
     episode_summaries = []
     try:
-        for ep in range(1, episodes + 1):#(53, 54):#
+        for ep in range (53, 54):#(1, episodes + 1):#
             ret, steps, done, trunc, goal_reached, goal_xy = rollout_episode(
                 env, agent, teacher, device=device, dtype=dtype, 
                 render=render_mode == "human", show_path=False,

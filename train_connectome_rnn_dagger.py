@@ -32,8 +32,7 @@ from shared_config import (
     EDGE_PATH,
     PHOTORECEPTOR_LEFT_CSV,
     PHOTORECEPTOR_RIGHT_CSV,
-    OLFACTORY_LEFT_CSV,
-    OLFACTORY_RIGHT_CSV,
+
     TACTILE_LEFT_CSV,
     TACTILE_RIGHT_CSV,
     DESCENDING_NEURONS_CSV,
@@ -67,8 +66,8 @@ from shared_config import configure_optimizer
 # DAgger Hyperparameters
 # -----------------------------
 N_DAGGER_ITERS = 3
-EPISODES_PER_ITER = 1000
-TRAIN_STEPS_PER_ITER = 500
+EPISODES_PER_ITER = 600
+TRAIN_STEPS_PER_ITER = 350
 
 BATCH_SIZE = 64
 GRAD_ACCUM_STEPS = 4  # Number of mini-batches to accumulate before optimizer step
@@ -807,8 +806,7 @@ def main():
         dtype=dtype,
         photoreceptor_left_csv=PHOTORECEPTOR_LEFT_CSV,
         photoreceptor_right_csv=PHOTORECEPTOR_RIGHT_CSV,
-        olfactory_left_csv=OLFACTORY_LEFT_CSV,
-        olfactory_right_csv=OLFACTORY_RIGHT_CSV,
+
         tactile_left_csv=TACTILE_LEFT_CSV,
         tactile_right_csv=TACTILE_RIGHT_CSV,
         descending_neurons_csv=DESCENDING_NEURONS_CSV,

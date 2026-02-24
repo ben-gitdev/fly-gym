@@ -8,7 +8,7 @@ import os
 import csv
 import pandas as pd
 
-EVAL_DIR = os.path.join(os.path.dirname(__file__), "eval_data", "vision_efficientnet_robust_blind")
+EVAL_DIR = os.path.join(os.path.dirname(__file__), "eval_data", "small_world_total_blind")
 
 
 def count_collisions(trajectory_path, min_gap=10):

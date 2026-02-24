@@ -13,8 +13,12 @@ import numpy as np
 import matplotlib.pyplot as plt
 from sklearn.decomposition import PCA
 
+# ---- Global plot style ----
+plt.rcParams["font.family"] = "Times New Roman"
+plt.rcParams["font.size"] = 24
+
 # ---- Configuration ----
-NPY_DIR = r"D:\Benquan\OneDrive MSState\OneDrive - Mississippi State University\Publications\IROS2026\materials\PCA\efficientnet_robust"
+NPY_DIR = r"D:\Benquan\OneDrive MSState\OneDrive - Mississippi State University\Publications\IROS2026\materials\PCA\efficientnet"
 
 # Display labels for each file (basename without extension)
 LABEL_MAP = {
@@ -92,25 +96,25 @@ def analyze_hidden_states(npy_dir: str = NPY_DIR) -> None:
     for stem, arr in data.items():
         projected[stem] = pca.transform(arr)  # (T, 3)
 
-    # ---- Plot 1: 2-D PCA trajectories (PC1 vs PC2) ----
-    fig, ax = plt.subplots(figsize=(8, 6))
-    for stem, proj in projected.items():
-        label = LABEL_MAP.get(stem, stem)
-        color = COLOR_MAP.get(stem, None)
-        ax.plot(proj[:, 0], proj[:, 1], linewidth=1.2, alpha=0.85,
-                label=label, color=color)
-        # Mark start and end
-        ax.scatter(proj[0, 0], proj[0, 1], marker='o', s=60, color=color,
-                   edgecolors='k', zorder=5)
-        ax.scatter(proj[-1, 0], proj[-1, 1], marker='X', s=80, color=color,
-                   edgecolors='k', zorder=5)
+    # # ---- Plot 1: 2-D PCA trajectories (PC1 vs PC2) ----
+    # fig, ax = plt.subplots(figsize=(8, 6))
+    # for stem, proj in projected.items():
+    #     label = LABEL_MAP.get(stem, stem)
+    #     color = COLOR_MAP.get(stem, None)
+    #     ax.plot(proj[:, 0], proj[:, 1], linewidth=1.2, alpha=0.85,
+    #             label=label, color=color)
+    #     # Mark start and end
+    #     ax.scatter(proj[0, 0], proj[0, 1], marker='o', s=60, color=color,
+    #                edgecolors='k', zorder=5)
+    #     ax.scatter(proj[-1, 0], proj[-1, 1], marker='X', s=80, color=color,
+    #                edgecolors='k', zorder=5)
 
-    ax.set_xlabel(f"PC1 ({pca.explained_variance_ratio_[0]*100:.1f}%)")
-    ax.set_ylabel(f"PC2 ({pca.explained_variance_ratio_[1]*100:.1f}%)")
-    ax.set_title("PCA of Connectome RNN Hidden States")
-    ax.legend(loc="best")
-    ax.grid(True, alpha=0.3)
-    fig.tight_layout()
+    # ax.set_xlabel(f"PC1 ({pca.explained_variance_ratio_[0]*100:.1f}%)")
+    # ax.set_ylabel(f"PC2 ({pca.explained_variance_ratio_[1]*100:.1f}%)")
+    # ax.set_title("PCA of Connectome RNN Hidden States")
+    # ax.legend(loc="best")
+    # ax.grid(True, alpha=0.3)
+    # fig.tight_layout()
 
     # ---- Plot 2: PC components over time ----
     fig2, axes = plt.subplots(3, 1, figsize=(10, 7), sharex=True)
@@ -128,6 +132,25 @@ def analyze_hidden_states(npy_dir: str = NPY_DIR) -> None:
     axes[0].set_title("Principal Components Over Time")
     fig2.tight_layout()
 
+    # ---- Plot 2b: PC1 & PC2 over time as 3-D trajectory ----
+    fig2b = plt.figure(figsize=(9, 7))
+    ax2b = fig2b.add_subplot(111, projection='3d')
+    for stem, proj in projected.items():
+        label = LABEL_MAP.get(stem, stem)
+        color = COLOR_MAP.get(stem, None)
+        t = np.arange(proj.shape[0])
+        ax2b.plot(t, proj[:, 0], proj[:, 1], linewidth=1.0,
+                  alpha=0.8, label=label, color=color)
+        ax2b.scatter(t[0], proj[0, 0], proj[0, 1], marker='o', s=60,
+                     color=color, edgecolors='k', zorder=5)
+        ax2b.scatter(t[-1], proj[-1, 0], proj[-1, 1], marker='X', s=80,
+                     color=color, edgecolors='k', zorder=5)
+
+    ax2b.set_xlabel("Time Step", labelpad=20)
+    ax2b.set_ylabel(f"PC1 ({pca.explained_variance_ratio_[0]*100:.1f}%)", labelpad=20)
+    ax2b.set_zlabel(f"PC2 ({pca.explained_variance_ratio_[1]*100:.1f}%)", labelpad=20)
+    fig2b.tight_layout()
+
     # ---- Plot 3: 3-D PCA trajectories ----
     fig3 = plt.figure(figsize=(9, 7))
     ax3 = fig3.add_subplot(111, projection='3d')
@@ -141,11 +164,11 @@ def analyze_hidden_states(npy_dir: str = NPY_DIR) -> None:
         ax3.scatter(proj[-1, 0], proj[-1, 1], proj[-1, 2], marker='X', s=80,
                     color=color, edgecolors='k', zorder=5)
 
-    ax3.set_xlabel(f"PC1 ({pca.explained_variance_ratio_[0]*100:.1f}%)")
-    ax3.set_ylabel(f"PC2 ({pca.explained_variance_ratio_[1]*100:.1f}%)")
-    ax3.set_zlabel(f"PC3 ({pca.explained_variance_ratio_[2]*100:.1f}%)")
-    ax3.set_title("3-D PCA of Connectome RNN Hidden States")
-    ax3.legend(loc="best")
+    ax3.set_xlabel(f"PC1 ({pca.explained_variance_ratio_[0]*100:.1f}%)", labelpad=20)
+    ax3.set_ylabel(f"PC2 ({pca.explained_variance_ratio_[1]*100:.1f}%)", labelpad=20)
+    ax3.set_zlabel(f"PC3 ({pca.explained_variance_ratio_[2]*100:.1f}%)", labelpad=20)
+    # ax3.set_title("3-D PCA of Connectome RNN Hidden States")
+    # ax3.legend(loc="best")
     fig3.tight_layout()
 
     plt.show()

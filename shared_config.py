@@ -23,21 +23,20 @@ TRAIN_RETINA = True
 # -----------------------------
 LR = 1e-4
 
+# BASE_PATH = "connectomes/ws_small_world/"
+BASE_PATH = "connectomes/drosophila adult connectome/"
 # -----------------------------
 # Paths (hardcoded)
 # -----------------------------
-# EDGE_PATH = "connectomes/drosophila adult connectome/Connectivity_783.parquet"
-# EDGE_PATH = "connectomes/drosophila adult connectome/Connectivity_random.parquet"
-EDGE_PATH = "connectomes/drosophila adult connectome/connections_princeton.csv"
-PHOTORECEPTOR_LEFT_CSV = "connectomes/drosophila adult connectome/visual_column_L1_L2_L3_rear_view_left.csv"
-PHOTORECEPTOR_RIGHT_CSV = "connectomes/drosophila adult connectome/visual_column_L1_L2_L3_rear_view_right.csv"
-OLFACTORY_LEFT_CSV = "connectomes/drosophila adult connectome/olfactory_ORN_DM1_left.csv"
-OLFACTORY_RIGHT_CSV = "connectomes/drosophila adult connectome/olfactory_ORN_DM1_right.csv"
-TACTILE_LEFT_CSV = "connectomes/drosophila adult connectome/head_bristles_left.csv"
-TACTILE_RIGHT_CSV = "connectomes/drosophila adult connectome/head_bristles_right.csv"
-DESCENDING_NEURONS_CSV = "connectomes/drosophila adult connectome/descending_neurons.csv"
-CELL_TYPES_CSV = "connectomes/drosophila adult connectome/consolidated_cell_types.csv"
-WIND_SENSING_CSV = "connectomes/drosophila adult connectome/JO-C_and_JO-E.csv"
+EDGE_PATH = "connectomes/drosophila adult connectome/connections_princeton_random.csv"
+# EDGE_PATH = BASE_PATH + "connections_ws_small_world.csv"
+PHOTORECEPTOR_LEFT_CSV = BASE_PATH + "visual_column_L1_L2_L3_rear_view_left.csv"
+PHOTORECEPTOR_RIGHT_CSV = BASE_PATH + "visual_column_L1_L2_L3_rear_view_right.csv"
+TACTILE_LEFT_CSV = BASE_PATH + "head_bristles_left.csv"
+TACTILE_RIGHT_CSV = BASE_PATH + "head_bristles_right.csv"
+DESCENDING_NEURONS_CSV = BASE_PATH + "descending_neurons.csv"
+CELL_TYPES_CSV = BASE_PATH + "consolidated_cell_types.csv"
+WIND_SENSING_CSV = BASE_PATH + "JO-C_and_JO-E.csv"
 
 # -----------------------------
 # Environment & Model Settings

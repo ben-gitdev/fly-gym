@@ -15,21 +15,19 @@ import csv
 # ── Configuration ────────────────────────────────────────────────────────────
 
 BASE_DIR = (
-    r"D:\Benquan\OneDrive MSState\OneDrive - Mississippi State University"
-    r"\Publications\IROS2026\materials\one_eye"
+    r"D:\Benquan\OneDrive MSState\OneDrive - Mississippi State University\Publications\IROS2026\materials\trajectories\small_world"
 )
 
 # Subfolder name → legend label (order determines draw & legend order)
 FOLDER_LABELS = {
-    "connectome":        "Connectome",
-    "dual_efficientnet": "Dual EfficientNet",
-    "dual_mobilenet":    "Dual MobileNet",
-    "efficientnet":      "EfficientNet",
-    "mobilenet":         "MobileNet",
+    "full_vision":        "Full Vision",
+    "right_eye_only": "Right Eye Only",
+    "left_eye_only":    "Left Eye Only",
+    "blind":      "Blind",
 }
 
 # Distinct colors for each model
-COLORS = ["#e6194b", "#3cb44b", "#4363d8", "#f58231", "#911eb4"]
+COLORS = ["#2196F3", "#FF9800", "#F44336"]
 
 # ── Helpers ──────────────────────────────────────────────────────────────────
 

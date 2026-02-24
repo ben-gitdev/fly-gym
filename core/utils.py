@@ -250,8 +250,6 @@ def build_connectome_cell(
     dtype: torch.dtype,
     photoreceptor_left_csv: str,
     photoreceptor_right_csv: str,
-    olfactory_left_csv: str,
-    olfactory_right_csv: str,
     tactile_left_csv: str,
     tactile_right_csv: str,
     descending_neurons_csv: str,
@@ -289,8 +287,6 @@ def build_connectome_cell(
     pr_L2_right_idx, pr_L2_right_pos = load_photoreceptors(photoreceptor_right_csv, id2idx, type='L2')
     pr_L3_right_idx, pr_L3_right_pos = load_photoreceptors(photoreceptor_right_csv, id2idx, type='L3')
     
-    olfactory_left_idx = load_sensory_neurons(olfactory_left_csv, id2idx)
-    olfactory_right_idx = load_sensory_neurons(olfactory_right_csv, id2idx)
     tactile_left_idx = load_sensory_neurons(tactile_left_csv, id2idx)
     tactile_right_idx = load_sensory_neurons(tactile_right_csv, id2idx)
     
@@ -300,7 +296,7 @@ def build_connectome_cell(
         wind_idx = load_sensory_neurons(wind_sensing_csv, id2idx)
         print(f"[io] Loaded {len(wind_idx)} wind sensing neurons.")
 
-    input_nodes = pr_L1_left_idx + pr_L2_left_idx + pr_L3_left_idx + pr_L1_right_idx + pr_L2_right_idx + pr_L3_right_idx + olfactory_left_idx + olfactory_right_idx + tactile_left_idx + tactile_right_idx + wind_idx
+    input_nodes = pr_L1_left_idx + pr_L2_left_idx + pr_L3_left_idx + pr_L1_right_idx + pr_L2_right_idx + pr_L3_right_idx + tactile_left_idx + tactile_right_idx + wind_idx
     pr_positions = pr_L1_left_pos + pr_L2_left_pos + pr_L3_left_pos + pr_L1_right_pos + pr_L2_right_pos + pr_L3_right_pos
 
     # Load Cell Types
@@ -317,8 +313,6 @@ def build_connectome_cell(
         ("pr_L1_right", len(pr_L1_right_idx)),
         ("pr_L2_right", len(pr_L2_right_idx)),
         ("pr_L3_right", len(pr_L3_right_idx)),
-        ("olf_left", len(olfactory_left_idx)),
-        ("olf_right", len(olfactory_right_idx)),
         ("tactile_left", len(tactile_left_idx)),
         ("tactile_right", len(tactile_right_idx)),
         ("wind", len(wind_idx)),  # NEW

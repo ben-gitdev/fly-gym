@@ -37,7 +37,6 @@ class ConnectomeAgent(nn.Module):
         self.input_scale_vision_L1 = nn.Parameter(torch.tensor(init_val, dtype=dtype))
         self.input_scale_vision_L2 = nn.Parameter(torch.tensor(init_val, dtype=dtype))
         self.input_scale_vision_L3 = nn.Parameter(torch.tensor(init_val, dtype=dtype))
-        self.input_scale_olfactory = nn.Parameter(torch.tensor(init_val, dtype=dtype))
         self.input_scale_tactile = nn.Parameter(torch.tensor(init_val, dtype=dtype))
         self.input_scale_wind = nn.Parameter(torch.tensor(init_val, dtype=dtype))
         self.input_scale_other = nn.Parameter(torch.tensor(init_val, dtype=dtype))
@@ -220,8 +219,6 @@ class ConnectomeAgent(nn.Module):
         scale_vec = apply_scale(scale_vec, "pr_L1_right", self.input_scale_vision_L1)
         scale_vec = apply_scale(scale_vec, "pr_L2_right", self.input_scale_vision_L2)
         scale_vec = apply_scale(scale_vec, "pr_L3_right", self.input_scale_vision_L3)
-        scale_vec = apply_scale(scale_vec, "olf_left", self.input_scale_olfactory)
-        scale_vec = apply_scale(scale_vec, "olf_right", self.input_scale_olfactory)
         scale_vec = apply_scale(scale_vec, "tactile_left", self.input_scale_tactile)
         scale_vec = apply_scale(scale_vec, "tactile_right", self.input_scale_tactile)
         scale_vec = apply_scale(scale_vec, "wind", self.input_scale_wind)
@@ -343,38 +340,7 @@ class ConnectomeAgent(nn.Module):
         
         return L_out, next_state
     
-    def _sample_olfactory(
-        self, sensors: Dict[str, torch.Tensor]
-    ) -> torch.Tensor:
-        n_olf_left = self._segment_length("olf_left")
-        n_olf_right = self._segment_length("olf_right")
-        base = sensors.get("vec_to_goal")
-        if base is None:
-            raise KeyError("sensors missing required key 'vec_to_goal'")
-        batch = base.size(0)
-        device = base.device
-        dtype = base.dtype
 
-        if n_olf_left == 0 and n_olf_right == 0:
-            # print("Warning: No olfactory receptors found in input_splits, no olfactory input to network.")
-            return torch.zeros(batch, 0, device=device, dtype=dtype)
-
-        vec_left = sensors.get("vec_left_to_goal", base)
-        vec_right = sensors.get("vec_right_to_goal", base)
-
-        dist_left = torch.linalg.norm(vec_left, dim=1)
-        dist_right = torch.linalg.norm(vec_right, dim=1)
-
-        acts_left = 0.3 / (dist_left + 0.1)
-        acts_right = 0.3 / (dist_right + 0.1)
-
-        feats = []
-        if n_olf_left > 0:
-            feats.append(acts_left.unsqueeze(1).expand(-1, n_olf_left))
-        if n_olf_right > 0:
-            feats.append(acts_right.unsqueeze(1).expand(-1, n_olf_right))
-
-        return torch.cat(feats, dim=1) if feats else torch.zeros(batch, 0, device=device, dtype=dtype)
     
     def _sample_tactile(
         self, sensors: Dict[str, torch.Tensor]
@@ -458,11 +424,10 @@ class ConnectomeAgent(nn.Module):
         x_right_L2 = self._sample_eye(cam_right, self.grid_L2_right)
         x_right_L3 = self._sample_eye(cam_right, self.grid_L3_right)
         
-        x_olf = self._sample_olfactory(sensors)
         x_tactile = self._sample_tactile(sensors)
         x_wind = self._sample_wind(sensors) # NEW
         
-        x = torch.cat([x_left_L1, x_left_L2, x_left_L3, x_right_L1, x_right_L2, x_right_L3, x_olf, x_tactile, x_wind], dim=1)
+        x = torch.cat([x_left_L1, x_left_L2, x_left_L3, x_right_L1, x_right_L2, x_right_L3, x_tactile, x_wind], dim=1)
         return x.to(dtype=self.cell.W_values.dtype)
 
     def x_to_action(self, x: torch.Tensor, update_state: bool = True) -> torch.Tensor:
@@ -502,8 +467,6 @@ class ConnectomeAgent(nn.Module):
             # Other inputs pass through unchanged
             # We can re-assemble efficiently by just replacing the visual parts or re-catting all
             # Re-cat is safer to ensure order
-            x_olf_L = self._slice_input(x_curr, "olf_left")*0.0+1.0
-            x_olf_R = self._slice_input(x_curr, "olf_right")*0.0+1.0
             x_tac_L = self._slice_input(x_curr, "tactile_left")
             x_tac_R = self._slice_input(x_curr, "tactile_right")
             x_wind = self._slice_input(x_curr, "wind")
@@ -515,7 +478,7 @@ class ConnectomeAgent(nn.Module):
             else:
                 x_wind = self.wind_mlp(x_wind[:, 0:2])
             out = torch.cat([a_L1_L, a_L2_L, a_L3_L, a_L1_R, a_L2_R, a_L3_R, 
-                             x_olf_L, x_olf_R, x_tac_L, x_tac_R, x_wind], dim=-1)
+                             x_tac_L, x_tac_R, x_wind], dim=-1)
             
             return out, new_states_L, new_states_R
 

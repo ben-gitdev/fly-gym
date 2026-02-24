@@ -1,9 +1,6 @@
 """
 Script to create a randomized connectome edge list.
 
-This script loads the original edge list from a parquet file, shuffles the 
-Presynaptic_ID and Postsynaptic_ID columns independently, replaces the 
-connectivity weights with random numbers, and saves the result to a new file.
 """
 
 import pandas as pd
@@ -30,10 +27,10 @@ def load_edge_list(path: Path) -> pd.DataFrame:
 def create_random_edge_list(df: pd.DataFrame, seed: int = 42) -> pd.DataFrame:
     """
     Create a randomized edge list by:
-    1. Getting all unique synapse IDs from Presynaptic_ID and Postsynaptic_ID
+    1. Getting all unique synapse IDs from pre_root_id and post_root_id
     2. Replacing each element in both columns with randomly sampled IDs from the full list
     3. Ensuring no duplicate edges exist (if duplicate, replace with new edge)
-    4. Replacing 'Excitatory x Connectivity' with random numbers
+    4. Replacing 'syn_count' with random numbers
     
     Args:
         df: Original edge list DataFrame
@@ -83,16 +80,16 @@ def create_random_edge_list(df: pd.DataFrame, seed: int = 42) -> pd.DataFrame:
     df_random["post_root_id"] = random_post_ids
     
     # Replace connectivity weights with random numbers
-    # Use uniform distribution in similar range as original data
-    original_weights = df["syn_count"].values
-    min_w = original_weights.min()
-    max_w = original_weights.max()
+    # # Use uniform distribution in similar range as original data
+    # original_weights = df["syn_count"].values
+    # min_w = original_weights.min()
+    # max_w = original_weights.max()
     
-    print(f"Original weight range: [{min_w:.4f}, {max_w:.4f}]")
+    # print(f"Original weight range: [{min_w:.4f}, {max_w:.4f}]")
     
     # Generate random weights in the same range
-    random_weights = np.random.uniform(min_w, max_w, size=len(df_random))
-    df_random["syn_count"] = random_weights
+    random_weights = np.random.uniform(5, 50, size=len(df_random))
+    df_random["syn_count"] = random_weights.astype(int)
     
     print(f"Created randomized edge list with {len(df_random)} unique edges.")
     
