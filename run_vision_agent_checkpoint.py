@@ -121,7 +121,7 @@ def maybe_show_cameras(obs):
 
 def run_episode(env, agent, device, dtype, render=False, render_skip=1,
                 episode_idx=0, save_dir=None, seed=None, vision=None,
-                save_internal_states=False):
+                save_internal_states="none"):
     obs, info = env.reset(seed=seed)
     if hasattr(agent, "reset_vision_state"):
         agent.reset_vision_state()
@@ -150,21 +150,22 @@ def run_episode(env, agent, device, dtype, render=False, render_skip=1,
 
     # --- Set up activation hooks ---
     recorder = None
-    if save_internal_states and save_dir is not None:
+    if save_internal_states != "none" and save_dir is not None:
         recorder = ActivationRecorder()
         # Determine which modules to hook
         hook_names = []
-        # Backbone feature blocks
-        for name, _ in agent.backbone.features.named_children():
-            hook_names.append(f"backbone.features.{name}")
-        # Average pool
-        hook_names.append("backbone.avgpool")
-        # GRU and policy head
+        if save_internal_states == "all":
+            # Backbone feature blocks
+            for name, _ in agent.backbone.features.named_children():
+                hook_names.append(f"backbone.features.{name}")
+            # Average pool
+            hook_names.append("backbone.avgpool")
+        # GRU and policy head (always included when recording)
         hook_names.append("gru")
         hook_names.append("policy_head")
         recorder.register(agent, module_names=hook_names)
-        print(f"[io] Recording internal states for episode {episode_idx} "
-              f"({len(hook_names)} modules hooked)")
+        print(f"[io] Recording internal states ({save_internal_states}) for episode "
+              f"{episode_idx} ({len(hook_names)} modules hooked)")
     # --------------------------------
     
     np_dtype = np.float32 if dtype == torch.float32 else np.float16
@@ -318,14 +319,15 @@ def _build_agent(model_type: str, device, dtype):
 
 def main():
     
-    checkpoint_path = os.path.join(CHECKPOINT_DIR, "mobilenet_dagger_final_full_vision.pt")
+    checkpoint_path = os.path.join(CHECKPOINT_DIR, "mobilenet_dagger_final_robust.pt")
     model_type = "mobilenet"
-    vision = [False, False]
+    vision = [True, False]
 
     episodes = 500
     render = False
     # Internal State Recording Config
     save_internal_state_episodes = [53]  # e.g., [1, 5, 10] to save those episodes
+    internal_state_mode = "gru_mlp"  # "none", "gru_mlp", or "all"
     # ---------------------
     
     device = get_device()
@@ -383,14 +385,15 @@ def main():
     render_skip = 1
     
     try:
-        for i in range(52,53):#(episodes):#
+        # for i in range(52,53):
+        for i in range(episodes):
             ep = i + 1
             print(f"Episode {ep}/{episodes}...", end=" ", flush=True)
             
             info, reward, steps, goal_reached, goal_xy = run_episode(
                 env, agent, device, DTYPE, render, render_skip,
                 episode_idx=ep, save_dir=save_dir, seed=ep, vision=vision,
-                save_internal_states=(ep in save_internal_state_episodes),
+                save_internal_states=internal_state_mode if ep in save_internal_state_episodes else "none",
             )
             
             dist = info["dist_to_goal"]

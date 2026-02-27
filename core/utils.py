@@ -272,7 +272,7 @@ def build_connectome_cell(
         input_splits: Dict mapping sensor names to (start, end) indices
     """
     from models.connectome_rnn_model import LeakyConnectomeRNNCell
-    
+    print("Edge path: ", edge_path)
     rows, cols, vals, id2idx = load_edge_list(edge_path)
     N = len(id2idx)
     W = build_sparse_matrix(rows, cols, vals, (N, N), dtype=torch.float32).to(device)

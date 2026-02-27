@@ -80,7 +80,7 @@ def visualize_episode(obs_file, traj_file, output_file, target_x=None, target_y=
 
 def main():
    
-    target_dir = "eval_data/vision_efficientnet_robust_right_eye"
+    target_dir = "eval_data/small_world_total_blind"
     if not os.path.exists(target_dir):
         print(f"Directory not found: {target_dir}")
         return

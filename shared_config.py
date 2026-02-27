@@ -28,8 +28,10 @@ BASE_PATH = "connectomes/drosophila adult connectome/"
 # -----------------------------
 # Paths (hardcoded)
 # -----------------------------
-EDGE_PATH = "connectomes/drosophila adult connectome/connections_princeton_random.csv"
+# EDGE_PATH = "connectomes/drosophila adult connectome/connections_princeton_random.csv"
 # EDGE_PATH = BASE_PATH + "connections_ws_small_world.csv"
+EDGE_PATH = BASE_PATH + "connections_princeton.csv"
+
 PHOTORECEPTOR_LEFT_CSV = BASE_PATH + "visual_column_L1_L2_L3_rear_view_left.csv"
 PHOTORECEPTOR_RIGHT_CSV = BASE_PATH + "visual_column_L1_L2_L3_rear_view_right.csv"
 TACTILE_LEFT_CSV = BASE_PATH + "head_bristles_left.csv"

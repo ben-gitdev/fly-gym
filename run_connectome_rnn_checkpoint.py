@@ -47,12 +47,11 @@ from train_connectome_rnn_rl import CTRL_PENALTY, TIME_PENALTY, PROG_SCALE, GOAL
 from core.utils import build_connectome_cell, obs_to_torch
 
 
-EDGE_PATH = "drosophila adult connectome/connections_princeton_random.csv"
-CHECKPOINT = "checkpoints/connectome_rnn_dagger_princeton_random_full_vision.pt"
 # EDGE_PATH = "connectomes/drosophila adult connectome/connections_princeton_random.csv"
 # CHECKPOINT = "checkpoints/connectome_rnn_dagger_princeton_random_full_vision.pt"
 # EDGE_PATH = "connectomes/drosophila adult connectome/connections_princeton.csv"
-# CHECKPOINT = "checkpoints/connectome_rnn_dagger_princeton.pt"
+CHECKPOINT = "checkpoints/connectome_rnn_dagger_princeton.pt"
+# CHECKPOINT = "checkpoints/connectome_rnn_dagger_small_world_full_vision.pt"
 RECORD_CSV = None#"connectomes/drosophila adult connectome/moonwalker_neurons.csv"       # e.g., "neurons_to_record.csv"
 OVERWRITE_CSV = None#"connectomes/drosophila adult connectome/moonwalker_neurons.csv"    # e.g., "neurons_to_overwrite.csv"
 END_ON_COLLISION = False
@@ -106,7 +105,7 @@ def _load_agent(checkpoint_path: str, device: torch.device, dtype: torch.dtype) 
         dtype=dtype,
         input_scale_init=INPUT_SCALE_INIT,
     ).to(device)
-
+    print("Checkpoint path: ", checkpoint_path)
     state_dict = torch.load(checkpoint_path, map_location=device)
     agent.load_state_dict(state_dict)
     agent.eval()
@@ -306,15 +305,15 @@ def rollout_episode(
 
 
 
-def main():
+def run_one_configuration(checkpoint, vision, rendermode = None):
     device = get_device()
     dtype = DTYPE
     
     # --- Configuration ---
-    checkpoint = CHECKPOINT
+    # checkpoint = CHECKPOINT
     episodes = 500
-    render_mode = "human"# Set to None for faster headless run
-    vision = [False , False]
+    render_mode = rendermode# Set to None for faster headless run
+    vision = vision
     
     # Neuron Manipulation Config
     record_csv = RECORD_CSV #"connectomes/drosophila adult connectome/moonwalker_descending_neurons.csv"       # e.g., "neurons_to_record.csv"
@@ -357,7 +356,8 @@ def main():
 
     episode_summaries = []
     try:
-        for ep in range (53, 54):#(1, episodes + 1):#
+        # for ep in range (53, 54):
+        for ep in range (1, episodes + 1):
             ret, steps, done, trunc, goal_reached, goal_xy = rollout_episode(
                 env, agent, teacher, device=device, dtype=dtype, 
                 render=render_mode == "human", show_path=False,
@@ -369,7 +369,7 @@ def main():
                 overwrite_steps=overwrite_steps,
                 seed=ep,
                 vision=vision,
-                save_hidden_states=(ep in save_hidden_state_episodes),
+                save_hidden_states=False,#(ep in save_hidden_state_episodes),
             )
             episode_summaries.append({
                 "episode": ep,
@@ -396,7 +396,16 @@ def main():
         print(f"[main] Episode summary saved to: {summary_file}")
         # --------------------------------
         env.close()
-
+    return save_dir
 
 if __name__ == "__main__":
-    main()
+    checkpoint = CHECKPOINT
+    rendermode = "human"
+    # dir1 = run_one_configuration(checkpoint, vision=[True, True], rendermode = rendermode)
+    # dir2 = run_one_configuration(checkpoint, vision=[False, True], rendermode = rendermode)
+    # dir3 = run_one_configuration(checkpoint, vision=[True, False], rendermode = rendermode)
+    dir4 = run_one_configuration(checkpoint, vision=[False, False], rendermode = rendermode)
+
+    # from analysis_pca_statistics import analysis_pca_cka
+    # condition_folders = [(dir1, "Full vision"), (dir2, "Right eye only"),(dir3, "Left eye only"), (dir4, "Total blindness")]
+    # analysis_pca_cka(condition_folders)

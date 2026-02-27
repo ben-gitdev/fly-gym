@@ -4,9 +4,9 @@ Refactored to fix terminal sampling bias, action bounds, and precision issues.
 """
 
 from __future__ import annotations
+import time as _time
 import csv
 import os
-from dataclasses import dataclass
 from typing import Tuple, Dict, List, Optional
 import matplotlib.pyplot as plt
 
@@ -18,7 +18,6 @@ import cv2
 from environment.mujoco_two_cam_env_random_obstacles import MuJoCoTwoCamEnv
 from agents.teacher_analytic_agent import PlannerAnalyticTeacher
 from agents.connectome_rnn_agent import ConnectomeAgent
-from models.connectome_rnn_model import LeakyConnectomeRNNCell
 from core.utils import (
     get_device,
     build_connectome_cell,
@@ -65,9 +64,10 @@ from shared_config import configure_optimizer
 # -----------------------------
 # DAgger Hyperparameters
 # -----------------------------
-N_DAGGER_ITERS = 3
-EPISODES_PER_ITER = 600
-TRAIN_STEPS_PER_ITER = 350
+N_DAGGER_ITERS = 1
+EPISODES_PER_ITER = 650
+TRAIN_STEPS_PER_ITER = 400
+N_ENVS = 10  # Number of concurrent environments for vectorized rollout
 
 BATCH_SIZE = 64
 GRAD_ACCUM_STEPS = 4  # Number of mini-batches to accumulate before optimizer step
@@ -76,7 +76,7 @@ T_UNROLL = 80
 T_BURN = 50
 LR = 3e-4
 
-BETA_START = 1.0 # 1.0: teacher drive, 0.0: agent drive
+BETA_START = 0.0 # 1.0: teacher drive, 0.0: agent drive
 BETA_END = 0.0
 BETA_DECAY = 0.5
 BETA_WARMUP = 0  # Number of iterations to keep beta=1.0 at start
@@ -85,17 +85,17 @@ STEERING_LOSS_SCALE = 2.0  # Prioritize steering accuracy over velocity
 
 NOISE_INTERVAL = 10
 START_NOISE = 0.5
-NOISE_DECAY = 0.2
+NOISE_DECAY = 0.0
 
 
 # -----------------------------
 # Balanced Buffer Configuration
 # -----------------------------
-RATIO_STRAIGHT = 0.25
+RATIO_STRAIGHT = 0.2
 RATIO_TURN = 0.25
 RATIO_COLLISION = 0.2
 RATIO_PRE_COLLISION = 0.2
-RATIO_START = 0.1
+RATIO_START = 0.15
 
 # Path Analysis Parameters
 DIRECTION_THRESHOLD_DEG = 1.0  # Degrees threshold for straight vs turn
@@ -105,10 +105,10 @@ COLLISION_RECOVERY_WINDOW = T_UNROLL + 50  # Steps after collision for recovery
 MAX_CHUNKS_PER_CATEGORY = 10000  # Max chunks stored per category
 
 LOSS_CSV_PATH = os.path.join(LOSS_DIR, "connectome_rnn_dagger_loss.csv")
-FINAL_CHECKPOINT_PATH = os.path.join(CHECKPOINT_DIR, "connectome_rnn_dagger_princeton_random.pt")
+FINAL_CHECKPOINT_PATH = os.path.join(CHECKPOINT_DIR, "connectome_rnn_dagger_princeton_base.pt")
 
 # Path to checkpoint to resume from (set to None to train from scratch)
-RESUME_CHECKPOINT_PATH = None  
+RESUME_CHECKPOINT_PATH = "checkpoints/connectome_rnn_dagger_princeton.pt"
 
 
 def maybe_show_cameras(obs):
@@ -132,6 +132,32 @@ def noise_schedule(iter_idx):
     else:
         noise = START_NOISE - NOISE_DECAY * (iter_idx - BETA_WARMUP)
     return max(0.0, noise)
+
+
+def _make_env(render_mode=None, seed = None):
+    """Create a single MuJoCo environment with shared settings."""
+    return MuJoCoTwoCamEnv(
+        width=ENV_WIDTH,
+        height=ENV_HEIGHT,
+        max_episode_steps=MAX_EPISODE_STEPS,
+        n_obstacles=N_OBSTACLES,
+        arena_half_extent=ARENA_HALF_EXTENT,
+        render_mode=render_mode,
+        end_on_collision=END_ON_COLLISION,
+        seed=seed,
+    )
+
+def _make_teacher():
+    """Create a single PlannerAnalyticTeacher with shared settings."""
+    return PlannerAnalyticTeacher(
+        arena_half_extent=ARENA_HALF_EXTENT,
+        cell_size=0.1,
+        robot_radius=0.2,
+        safety_margin=0.1,
+        obstacle_box_half=(0.4, 0.4),
+        k_nearest_obs=5,
+        device="cpu",
+    )
 
 
 class PathAnalyzer:
@@ -270,7 +296,7 @@ class PathAnalyzer:
     
     def segment_into_chunks(
         self, 
-        raw_obs_list: List[dict],
+        processed_obs_list: List[dict],
         teacher_actions: np.ndarray,
         keypoints: dict,
         chunk_length: int,
@@ -281,7 +307,7 @@ class PathAnalyzer:
         Segment observations into 4 category chunks with proper overlap handling.
         
         Args:
-            raw_obs_list: List of raw observations from episode
+            processed_obs_list: List of pre-processed observations from episode
             teacher_actions: Array of teacher actions (T, action_dim)
             keypoints: Dict with straight_starts, turn_starts, collision_points
             chunk_length: T_UNROLL + T_BURN
@@ -291,12 +317,12 @@ class PathAnalyzer:
         Returns:
             dict with 'straight', 'turn', 'collision', 'start' lists of (obs_chunk, action_chunk)
         """
-        n = len(raw_obs_list)
+        n = len(processed_obs_list)
         chunks = {'straight': [], 'turn': [], 'collision': [], 'pre_collision': [], 'start': []}
         
         # 1. Extract START chunk (beginning of episode)
         if n >= chunk_length:
-            obs_chunk = raw_obs_list[:chunk_length]
+            obs_chunk = processed_obs_list[:chunk_length]
             act_chunk = teacher_actions[:chunk_length]
             chunks['start'].append((obs_chunk, act_chunk))
         
@@ -319,7 +345,7 @@ class PathAnalyzer:
                 chunk_start = start_idx + i * stride
                 chunk_end = chunk_start + chunk_length
                 if chunk_end <= n:
-                    obs_chunk = raw_obs_list[chunk_start:chunk_end]
+                    obs_chunk = processed_obs_list[chunk_start:chunk_end]
                     act_chunk = teacher_actions[chunk_start:chunk_end]
                     chunks['straight'].append((obs_chunk, act_chunk))
         
@@ -340,7 +366,7 @@ class PathAnalyzer:
             if segment_length < chunk_length:
                 # Still try to get at least one chunk if possible
                 if actual_start + chunk_length <= n:
-                    obs_chunk = raw_obs_list[actual_start:actual_start + chunk_length]
+                    obs_chunk = processed_obs_list[actual_start:actual_start + chunk_length]
                     act_chunk = teacher_actions[actual_start:actual_start + chunk_length]
                     chunks['turn'].append((obs_chunk, act_chunk))
                 continue
@@ -351,7 +377,7 @@ class PathAnalyzer:
                 chunk_start = actual_start + i * stride
                 chunk_end = chunk_start + chunk_length
                 if chunk_end <= n:
-                    obs_chunk = raw_obs_list[chunk_start:chunk_end]
+                    obs_chunk = processed_obs_list[chunk_start:chunk_end]
                     act_chunk = teacher_actions[chunk_start:chunk_end]
                     chunks['turn'].append((obs_chunk, act_chunk))
         
@@ -377,7 +403,7 @@ class PathAnalyzer:
                 chunk_start = actual_start + i * stride
                 chunk_end = chunk_start + chunk_length
                 if chunk_end <= n:
-                    obs_chunk = raw_obs_list[chunk_start:chunk_end]
+                    obs_chunk = processed_obs_list[chunk_start:chunk_end]
                     act_chunk = teacher_actions[chunk_start:chunk_end]
                     chunks['collision'].append((obs_chunk, act_chunk))
         
@@ -390,7 +416,7 @@ class PathAnalyzer:
             # Check validity: must start after protected region
             if chunk_start >= protected_start_steps:
                 if chunk_end <= n:
-                    obs_chunk = raw_obs_list[chunk_start:chunk_end]
+                    obs_chunk = processed_obs_list[chunk_start:chunk_end]
                     act_chunk = teacher_actions[chunk_start:chunk_end]
                     chunks['pre_collision'].append((obs_chunk, act_chunk))
         
@@ -530,85 +556,11 @@ def forward_policy_sequence(agent, xs):
     _, y_seq, _ = agent.forward_sequence(xs, checkpoint_steps=USE_GRADIENT_CHECKPOINT)
     return y_seq
 
-def rollout_episode(
-    env, teacher, agent, beta: float, device, dtype, beta_noise: float = 0.0
-) -> Tuple[List[dict], np.ndarray, bool]:
-    """
-    Run one episode and return raw observations + teacher actions.
-    
-    Returns:
-        raw_obs_list: List of raw observation dicts
-        teacher_actions: Array of teacher actions (steps, action_dim)
-        valid: Whether episode completed successfully
-    """
-    raw_obs_list = []
-    teacher_actions_list = []
-    
-    obs, _ = env.reset()
-    agent.reset_vision_state()
-    teacher.reset()
-    h = torch.zeros(1, agent.cell.N, device=device, dtype=dtype)
-    steps = 0
-    
-    noise_disturbing = False
-    noise_steps = 0
-    noise = np.zeros(2, dtype=np.float32)
-    action_exec = np.zeros(2, dtype=np.float32)
-    
-    while steps < MAX_EPISODE_STEPS:
-
-        obs, _, done, trunc, _ = env.step(action_exec)
-        steps += 1
-
-        maybe_show_cameras(obs)
-        
-        # Store raw observation BEFORE processing
-        raw_obs_list.append(obs)
-        
-        obs_t = obs_to_torch(obs, device=device, dtype=dtype)
-        xs = agent.obs_to_x(obs_t)
-        
-        with torch.no_grad():
-            h, student_action = agent.step(
-                h,
-                {"cam_left": obs_t["cam_left"], "cam_right": obs_t["cam_right"], "sensors": obs_t["sensors"]},
-                x=xs,
-            )
-        student_action_np = student_action.squeeze(0).cpu().numpy()
-        teacher_action = teacher.act(env)
-        
-        if teacher_action is None:
-            # Teacher cannot provide action - invalid episode
-            return [], np.array([]), False
-        
-        teacher_actions_list.append(teacher_action.copy())
-        
-        # Always let teacher take over when there's a collision
-        if teacher._rec_phase is not None:
-            action_exec = teacher_action
-        else:
-            action_exec = beta * teacher_action + (1.0 - beta) * student_action_np
-        
-        # Noise Injection Logic
-        if not noise_disturbing and teacher._rec_phase is None and steps % NOISE_INTERVAL == 1:
-            noise_disturbing = True
-            noise_steps = 0
-            noise = np.array([0.0, np.random.uniform(-1.0, 1.0)], dtype=np.float32) * beta_noise
-        if noise_disturbing:
-            action_exec += noise
-            noise_steps += 1
-            if noise_steps >= 50:
-                noise_disturbing = False
-        
-        if done or trunc:
-            break
-    
-    return raw_obs_list, np.array(teacher_actions_list, dtype=np.float32), True
-
 
 def process_episode_to_chunks(
     agent,
     raw_obs_list: List[dict],
+    processed_obs_list: List[np.ndarray],
     teacher_actions: np.ndarray,
     analyzer: PathAnalyzer,
     chunk_length: int,
@@ -620,8 +572,9 @@ def process_episode_to_chunks(
     Process raw observations into categorized chunks.
     
     Args:
-        agent: The agent for obs_to_x conversion
-        raw_obs_list: List of raw observation dicts
+        agent: The agent (unused now, kept for API consistency)
+        raw_obs_list: List of raw observation dicts (used for keypoint extraction)
+        processed_obs_list: List of pre-computed obs_to_x numpy arrays (Nin,)
         teacher_actions: Array of teacher actions (T, action_dim)
         analyzer: PathAnalyzer instance
         chunk_length: T_UNROLL + T_BURN
@@ -643,74 +596,251 @@ def process_episode_to_chunks(
     keypoints = analyzer.find_keypoints(raw_obs_list, xy_path, collisions)
     
     # 3. Segment into chunks (respecting protected start region)
+    # Uses processed_obs_list for slicing (already pre-computed numpy arrays)
     protected_start = chunk_length  # T_UNROLL + T_BURN
     obs_chunks_dict = analyzer.segment_into_chunks(
-        raw_obs_list, teacher_actions, keypoints,
+        processed_obs_list, teacher_actions, keypoints,
         chunk_length, stride, protected_start
     )
     
-    # 4. Process each chunk through agent.obs_to_x()
+    # 4. Stack pre-computed numpy arrays into (T, Nin) chunks
     processed_chunks = {'straight': [], 'turn': [], 'collision': [], 'pre_collision': [], 'start': []}
     
     for category, chunks in obs_chunks_dict.items():
-        for (obs_chunk, action_chunk) in chunks:
-            if len(obs_chunk) != chunk_length:
+        for (xs_chunk, action_chunk) in chunks:
+            if len(xs_chunk) != chunk_length:
                 continue  # Skip invalid chunks
             
-            xs_list = []
-            for obs in obs_chunk:
-                obs_t = obs_to_torch(obs, device=device, dtype=dtype)
-                with torch.no_grad():
-                    xs = agent.obs_to_x(obs_t)
-                xs_list.append(xs.squeeze(0).cpu().numpy())
-            
-            xs_arr = np.stack(xs_list, axis=0)  # (T, Nin)
+            # xs_chunk is a list of numpy arrays (Nin,) — just stack them
+            xs_arr = np.stack(xs_chunk, axis=0)  # (T, Nin)
             processed_chunks[category].append((xs_arr, action_chunk))
     
     return processed_chunks
 
 
 def rollout_and_collect_balanced(
-    env, teacher, agent, buffer: BalancedDAggerBuffer,
+    envs, teachers, agent, buffer: BalancedDAggerBuffer,
     beta: float, device, dtype, beta_noise: float,
     analyzer: PathAnalyzer, chunk_length: int, stride: int
 ):
     """
-    Collect episodes and add categorized chunks to balanced buffer.
-    Processes chunks per-episode to save memory.
+    Collect EPISODES_PER_ITER episodes using N concurrent envs with batched
+    GPU inference.  Each env has its own teacher.
+
+    The connectome agent's obs_to_x() is called per-env to maintain correct
+    retinal temporal state.  The RNN step is batched across all active envs.
     """
-    agent.eval()  # Inference mode during rollout
-    
+    agent.eval()
+    n_envs = len(envs)
+    need_student = beta < 1.0
+
     total_chunks = {'straight': 0, 'turn': 0, 'collision': 0, 'pre_collision': 0, 'start': 0}
-    
-    for ep in range(EPISODES_PER_ITER):
-        # Phase 1: Collect raw episode
-        print(f"\r Collecting episode {ep+1}/{EPISODES_PER_ITER}", end="", flush=True)
-        raw_obs, teacher_actions, valid = rollout_episode(
-            env, teacher, agent, beta, device, dtype, beta_noise
-        )
-        
-        if not valid or len(raw_obs) < chunk_length:
-            print(f"  [ep {ep+1}] Skipped (invalid or too short)")
-            continue
-        
-        # Phase 2: Process into chunks (per-episode to save memory)
-        processed = process_episode_to_chunks(
-            agent, raw_obs, teacher_actions, analyzer,
-            chunk_length=chunk_length,
-            stride=stride,
-            device=device, dtype=dtype
-        )
-        
-        # Phase 3: Add to buffer
-        for category, chunks in processed.items():
-            for (xs, actions) in chunks:
-                buffer.add_chunk(category, xs, actions)
-                total_chunks[category] += 1
-        
-        # Raw observations are garbage collected after this iteration
-        del raw_obs, teacher_actions, processed
-    
+    episodes_done = 0
+
+    # ---- per-env mutable state ----
+    obs_list      = [None] * n_envs          # latest raw obs
+    raw_obs_buf   = [[] for _ in range(n_envs)]  # raw obs history
+    proc_obs_buf  = [[] for _ in range(n_envs)]  # pre-computed obs_to_x numpy arrays
+    teacher_act_buf = [[] for _ in range(n_envs)]
+    action_exec   = [np.zeros(2, dtype=np.float32) for _ in range(n_envs)]
+    steps         = [0] * n_envs
+    noise_disturbing = [False] * n_envs
+    noise_steps   = [0] * n_envs
+    noise_vals    = [np.zeros(2, dtype=np.float32) for _ in range(n_envs)]
+    active        = [True] * n_envs
+    done_flags    = [False] * n_envs
+    trunc_flags   = [False] * n_envs
+
+    # Per-env retinal vision states (dicts with L1/L2/L3 keys)
+    vision_states_left  = [None] * n_envs
+    vision_states_right = [None] * n_envs
+
+    if need_student:
+        h = torch.zeros(n_envs, agent.cell.N, device=device, dtype=dtype)
+
+    # ---- reset all envs ----
+    for i in range(n_envs):
+        obs_list[i], _ = envs[i].reset()
+        teachers[i].reset()
+
+    t0 = _time.perf_counter()
+
+    # ---- main loop: step all active envs until enough episodes collected ----
+    while episodes_done < EPISODES_PER_ITER:
+        # 1. MuJoCo step all active envs
+        for i in range(n_envs):
+            if not active[i]:
+                continue
+            obs, _, done_flags[i], trunc_flags[i], _ = envs[i].step(action_exec[i])
+            obs_list[i] = obs
+            steps[i] += 1
+            raw_obs_buf[i].append(obs)
+
+        # 2. Per-env preprocessing: obs_to_torch -> obs_to_x (stateful retinal processing)
+        #    Must be sequential per env to maintain correct L2/L3 temporal state.
+        #    Always run obs_to_x (even with beta=1.0) to populate proc_obs_buf for chunks.
+        x_list = [None] * n_envs
+        active_ids = [i for i in range(n_envs) if active[i]]
+        gpu_ids = [i for i in active_ids if not done_flags[i] and not trunc_flags[i]]
+
+        for i in active_ids:
+            # Restore per-env retinal state into agent
+            agent.state_vision_left = vision_states_left[i]
+            agent.state_vision_right = vision_states_right[i]
+
+            obs_t = obs_to_torch(obs_list[i], device=device, dtype=dtype)
+            with torch.no_grad():
+                xs = agent.obs_to_x(obs_t)  # (1, Nin)
+            x_list[i] = xs
+
+            # Save updated retinal state back
+            vision_states_left[i] = agent.state_vision_left
+            vision_states_right[i] = agent.state_vision_right
+
+            # Store pre-computed obs_to_x result as numpy for chunk processing
+            proc_obs_buf[i].append(xs.squeeze(0).cpu().numpy())
+
+        # 3. Batched RNN step on GPU (all active envs at once)
+        n_gpu = len(gpu_ids)
+        if need_student and n_gpu > 0:
+            # Batch the pre-computed x tensors
+            x_batch = torch.cat([x_list[i] for i in gpu_ids], dim=0)  # (n_gpu, Nin)
+
+            # Gather hidden states for active envs
+            gpu_idx_tensor = torch.tensor(gpu_ids, device=device, dtype=torch.long)
+            h_active = h[gpu_idx_tensor]
+
+            with torch.no_grad():
+                h_new, student_actions = agent.step(h_active, None, x=x_batch)
+
+            student_actions_np = student_actions.cpu().numpy()
+
+            # Write back hidden state
+            h[gpu_idx_tensor] = h_new
+
+        # 4. Teacher planning (CPU)
+        for i in range(n_envs):
+            if not active[i]:
+                continue
+            teacher_action = teachers[i].act(envs[i])
+            if teacher_action is None:
+                active[i] = False
+            else:
+                teacher_act_buf[i].append(teacher_action.copy())
+            if done_flags[i] or trunc_flags[i] or not active[i]:
+                active[i] = False
+
+        # 5. Compute executed action per env
+        for idx_a, i in enumerate(gpu_ids):
+            if not active[i]:
+                continue
+            teacher_action = teacher_act_buf[i][-1]
+
+            if teachers[i]._rec_phase is not None:
+                action_exec[i] = teacher_action
+            elif not need_student:
+                action_exec[i] = teacher_action
+            else:
+                student_np = student_actions_np[idx_a]
+                action_exec[i] = beta * teacher_action + (1.0 - beta) * student_np
+
+            # Noise injection
+            if (not noise_disturbing[i]
+                    and teachers[i]._rec_phase is None
+                    and steps[i] % NOISE_INTERVAL == 1):
+                noise_disturbing[i] = True
+                noise_steps[i] = 0
+                noise_vals[i] = np.array(
+                    [0.0, np.random.uniform(-1.0, 1.0)], dtype=np.float32
+                ) * beta_noise
+            if noise_disturbing[i]:
+                action_exec[i] = action_exec[i] + noise_vals[i]
+                noise_steps[i] += 1
+                if noise_steps[i] >= 50:
+                    noise_disturbing[i] = False
+
+        # 6. Harvest finished episodes & reset
+        reset_ids = []
+        for i in range(n_envs):
+            if active[i]:
+                continue
+            # This env finished its episode – process it
+            raw_obs = raw_obs_buf[i]
+            proc_obs = proc_obs_buf[i]
+            t_acts = teacher_act_buf[i]
+
+            valid = len(raw_obs) > 0 and len(t_acts) > 0
+            if valid and len(raw_obs) >= chunk_length:
+                teacher_actions_arr = np.array(t_acts, dtype=np.float32)
+                processed = process_episode_to_chunks(
+                    agent, raw_obs, proc_obs, teacher_actions_arr, analyzer,
+                    chunk_length=chunk_length, stride=stride,
+                    device=device, dtype=dtype
+                )
+                for category, chunks in processed.items():
+                    for (xs, actions) in chunks:
+                        buffer.add_chunk(category, xs, actions)
+                        total_chunks[category] += 1
+
+            episodes_done += 1
+            if episodes_done % 10 == 0 or episodes_done == EPISODES_PER_ITER:
+                elapsed = _time.perf_counter() - t0
+                eps_per_sec = episodes_done / max(elapsed, 1e-6)
+                print(
+                    f"\r  Episodes: {episodes_done}/{EPISODES_PER_ITER}  "
+                    f"({eps_per_sec:.2f} ep/s)",
+                    end="", flush=True,
+                )
+
+            if episodes_done >= EPISODES_PER_ITER:
+                break
+
+            # Reset this env for a new episode
+            raw_obs_buf[i] = []
+            proc_obs_buf[i] = []
+            teacher_act_buf[i] = []
+            action_exec[i] = np.zeros(2, dtype=np.float32)
+            steps[i] = 0
+            done_flags[i] = False
+            trunc_flags[i] = False
+            noise_disturbing[i] = False
+            noise_steps[i] = 0
+            noise_vals[i] = np.zeros(2, dtype=np.float32)
+            obs_list[i], _ = envs[i].reset(seed = episodes_done)
+            # print("Episodes done: ", episodes_done)
+            teachers[i].reset()
+            vision_states_left[i] = None
+            vision_states_right[i] = None
+            reset_ids.append(i)
+            active[i] = True
+
+        # Batched hidden-state reset
+        if need_student and reset_ids:
+            h[reset_ids] = 0.0
+
+        # If no envs are active and we still need episodes, reset all
+        if not any(active) and episodes_done < EPISODES_PER_ITER:
+            print("\n[warn] All envs finished but target not reached. Resetting all.")
+            for i in range(n_envs):
+                raw_obs_buf[i] = []
+                proc_obs_buf[i] = []
+                teacher_act_buf[i] = []
+                action_exec[i] = np.zeros(2, dtype=np.float32)
+                steps[i] = 0
+                done_flags[i] = False
+                trunc_flags[i] = False
+                noise_disturbing[i] = False
+                noise_steps[i] = 0
+                noise_vals[i] = np.zeros(2, dtype=np.float32)
+                obs_list[i], _ = envs[i].reset()
+                teachers[i].reset()
+                vision_states_left[i] = None
+                vision_states_right[i] = None
+                active[i] = True
+            if need_student:
+                h[:] = 0.0
+
+    print()  # newline after progress
     return total_chunks
 
 
@@ -787,18 +917,6 @@ def main():
     device = get_device()
     dtype = DTYPE
     print(f"[device] Using {device} ({dtype})")
-    
-
-
-    env = MuJoCoTwoCamEnv(
-        width=ENV_WIDTH,
-        height=ENV_HEIGHT,
-        max_episode_steps=MAX_EPISODE_STEPS,
-        n_obstacles=N_OBSTACLES,
-        arena_half_extent=ARENA_HALF_EXTENT,
-        render_mode=RENDER_MODE,
-        end_on_collision=END_ON_COLLISION,
-    )
 
     cell, pr_positions, input_splits, _ = build_connectome_cell(
         edge_path=EDGE_PATH,
@@ -839,15 +957,11 @@ def main():
         else:
             print(f"[ckpt] Warning: Checkpoint not found at {RESUME_CHECKPOINT_PATH}, starting from scratch")
 
-    teacher = PlannerAnalyticTeacher(
-        arena_half_extent=env.arena,
-        cell_size=0.1,
-        robot_radius=0.2,
-        safety_margin=0.1,
-        obstacle_box_half=(0.4, 0.4),
-        k_nearest_obs=5,
-        device="cpu",
-    )
+    # Create N_ENVS environments and teachers
+    envs = [_make_env(render_mode=RENDER_MODE if i == 0 else None)
+            for i in range(N_ENVS)]
+    teachers = [_make_teacher() for _ in range(N_ENVS)]
+    print(f"[env] Created {N_ENVS} concurrent environments")
 
     os.makedirs(CHECKPOINT_DIR, exist_ok=True)
     
@@ -872,7 +986,7 @@ def main():
 
             # Collect data with balanced buffer
             chunks_added = rollout_and_collect_balanced(
-                env, teacher, agent, buffer, beta, device, dtype, beta_noise,
+                envs, teachers, agent, buffer, beta, device, dtype, beta_noise,
                 analyzer, chunk_length, stride
             )
             chunk_counts = buffer.get_counts()
@@ -911,7 +1025,8 @@ def main():
                 print(f"[ckpt] Saved checkpoint to {ckpt_path}")
 
     finally:
-        env.close()
+        for e in envs:
+            e.close()
         if RENDER_MODE == "human" and cv2 is not None:
             cv2.destroyAllWindows()
         torch.save(agent.state_dict(), FINAL_CHECKPOINT_PATH)
@@ -920,3 +1035,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+

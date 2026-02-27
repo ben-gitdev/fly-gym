@@ -18,11 +18,12 @@ plt.rcParams["font.family"] = "Times New Roman"
 plt.rcParams["font.size"] = 24
 
 # ---- Configuration ----
-NPY_DIR = r"D:\Benquan\OneDrive MSState\OneDrive - Mississippi State University\Publications\IROS2026\materials\PCA\efficientnet"
+NPY_DIR = r"D:\Benquan\OneDrive MSState\OneDrive - Mississippi State University\Publications\IROS2026\materials\PCA\connectome2"
 
 # Display labels for each file (basename without extension)
 LABEL_MAP = {
     "full_vision": "Full Vision",
+    "left_eye_only": "Left Eye Only",
     "right_eye_only": "Right Eye Only",
     "total_blind": "Total Blind",
 }
@@ -30,6 +31,7 @@ LABEL_MAP = {
 # Colors for each condition
 COLOR_MAP = {
     "full_vision": "#2196F3",       # blue
+    "left_eye_only": "#4CAF50",     # green
     "right_eye_only": "#FF9800",    # orange
     "total_blind": "#F44336",       # red
 }
@@ -87,89 +89,162 @@ def analyze_hidden_states(npy_dir: str = NPY_DIR) -> None:
     all_states = np.concatenate(list(data.values()), axis=0)  # (sum_T, N)
     print(f"[pca] Joint data matrix: {all_states.shape}")
 
-    pca = PCA(n_components=3)
+    pca = PCA(n_components=10)
     pca.fit(all_states)
-    print(f"[pca] Explained variance ratio (PC1-3): {pca.explained_variance_ratio_}")
+    print(f"[pca] Explained variance ratio (PC1-10): {pca.explained_variance_ratio_}")
 
-    # 3. Transform each condition separately
-    projected = {}
+    # 3. Transform each condition separately (all 10 PCs)
+    projected_10 = {}
     for stem, arr in data.items():
-        projected[stem] = pca.transform(arr)  # (T, 3)
+        projected_10[stem] = pca.transform(arr)  # (T, 10)
 
-    # # ---- Plot 1: 2-D PCA trajectories (PC1 vs PC2) ----
-    # fig, ax = plt.subplots(figsize=(8, 6))
-    # for stem, proj in projected.items():
-    #     label = LABEL_MAP.get(stem, stem)
-    #     color = COLOR_MAP.get(stem, None)
-    #     ax.plot(proj[:, 0], proj[:, 1], linewidth=1.2, alpha=0.85,
-    #             label=label, color=color)
-    #     # Mark start and end
-    #     ax.scatter(proj[0, 0], proj[0, 1], marker='o', s=60, color=color,
-    #                edgecolors='k', zorder=5)
-    #     ax.scatter(proj[-1, 0], proj[-1, 1], marker='X', s=80, color=color,
-    #                edgecolors='k', zorder=5)
+    # Keep only first 3 PCs for the trajectory plots
+    projected = {stem: proj[:, :3] for stem, proj in projected_10.items()}
 
-    # ax.set_xlabel(f"PC1 ({pca.explained_variance_ratio_[0]*100:.1f}%)")
-    # ax.set_ylabel(f"PC2 ({pca.explained_variance_ratio_[1]*100:.1f}%)")
+    # ---- Plot 1: 2-D PCA trajectories (PC1 vs PC2) ----
+    fig, ax = plt.subplots(figsize=(8, 6))
+    for stem, proj in projected.items():
+        label = LABEL_MAP.get(stem, stem)
+        color = COLOR_MAP.get(stem, None)
+        ax.plot(proj[:, 0], proj[:, 1], linewidth=1.2, alpha=0.85,
+                label=label, color=color)
+        # Mark start and end
+        ax.scatter(proj[0, 0], proj[0, 1], marker='o', s=60, color=color,
+                   edgecolors='k', zorder=5)
+        ax.scatter(proj[-1, 0], proj[-1, 1], marker='X', s=80, color=color,
+                   edgecolors='k', zorder=5)
+
+    ax.set_xlabel(f"PC1 ({pca.explained_variance_ratio_[0]*100:.1f}%)")
+    ax.set_ylabel(f"PC2 ({pca.explained_variance_ratio_[1]*100:.1f}%)")
     # ax.set_title("PCA of Connectome RNN Hidden States")
     # ax.legend(loc="best")
-    # ax.grid(True, alpha=0.3)
-    # fig.tight_layout()
+    ax.grid(True, alpha=0.3)
+    fig.tight_layout()
 
-    # ---- Plot 2: PC components over time ----
-    fig2, axes = plt.subplots(3, 1, figsize=(10, 7), sharex=True)
-    for pc_idx, ax2 in enumerate(axes):
-        for stem, proj in projected.items():
-            label = LABEL_MAP.get(stem, stem)
-            color = COLOR_MAP.get(stem, None)
-            ax2.plot(proj[:, pc_idx], linewidth=1.0, alpha=0.85,
-                     label=label, color=color)
-        ax2.set_ylabel(f"PC{pc_idx+1}")
-        ax2.grid(True, alpha=0.3)
-        if pc_idx == 0:
-            ax2.legend(loc="best", fontsize=8)
-    axes[-1].set_xlabel("Time Step")
-    axes[0].set_title("Principal Components Over Time")
-    fig2.tight_layout()
+    # # ---- Plot 2: PC components over time ----
+    # fig2, axes = plt.subplots(3, 1, figsize=(10, 7), sharex=True)
+    # for pc_idx, ax2 in enumerate(axes):
+    #     for stem, proj in projected.items():
+    #         label = LABEL_MAP.get(stem, stem)
+    #         color = COLOR_MAP.get(stem, None)
+    #         ax2.plot(proj[:, pc_idx], linewidth=1.0, alpha=0.85,
+    #                  label=label, color=color)
+    #     ax2.set_ylabel(f"PC{pc_idx+1}")
+    #     ax2.grid(True, alpha=0.3)
+    #     if pc_idx == 0:
+    #         ax2.legend(loc="best", fontsize=8)
+    # axes[-1].set_xlabel("Time Step")
+    # axes[0].set_title("Principal Components Over Time")
+    # fig2.tight_layout()
 
     # ---- Plot 2b: PC1 & PC2 over time as 3-D trajectory ----
     fig2b = plt.figure(figsize=(9, 7))
     ax2b = fig2b.add_subplot(111, projection='3d')
+
+    # Preliminary pass: draw invisible lines to establish axis limits
     for stem, proj in projected.items():
-        label = LABEL_MAP.get(stem, stem)
-        color = COLOR_MAP.get(stem, None)
         t = np.arange(proj.shape[0])
-        ax2b.plot(t, proj[:, 0], proj[:, 1], linewidth=1.0,
-                  alpha=0.8, label=label, color=color)
-        ax2b.scatter(t[0], proj[0, 0], proj[0, 1], marker='o', s=60,
-                     color=color, edgecolors='k', zorder=5)
-        ax2b.scatter(t[-1], proj[-1, 0], proj[-1, 1], marker='X', s=80,
-                     color=color, edgecolors='k', zorder=5)
+        ax2b.plot(t, proj[:, 0], proj[:, 1], alpha=0.0)
 
     ax2b.set_xlabel("Time Step", labelpad=20)
     ax2b.set_ylabel(f"PC1 ({pca.explained_variance_ratio_[0]*100:.1f}%)", labelpad=20)
     ax2b.set_zlabel(f"PC2 ({pca.explained_variance_ratio_[1]*100:.1f}%)", labelpad=20)
-    fig2b.tight_layout()
 
-    # ---- Plot 3: 3-D PCA trajectories ----
-    fig3 = plt.figure(figsize=(9, 7))
-    ax3 = fig3.add_subplot(111, projection='3d')
+    # Wall projections (drawn first so they layer below main curves)
+    t_min, t_max = ax2b.get_xlim()
+    pc1_min, pc1_max = ax2b.get_ylim()
+    pc2_min, pc2_max = ax2b.get_zlim()
+    proj_alpha = 0.5
+    for stem, proj in projected.items():
+        color = COLOR_MAP.get(stem, None)
+        t = np.arange(proj.shape[0])
+        # XY floor (z = pc2_min): Time vs PC1
+        ax2b.plot(t, proj[:, 0], pc2_min, linewidth=0.8, alpha=proj_alpha, color=color, linestyle='--')
+        ax2b.scatter(t[0], proj[0, 0], pc2_min, marker='o', s=60, color=color, edgecolors='k', alpha=proj_alpha)
+        ax2b.scatter(t[-1], proj[-1, 0], pc2_min, marker='s', s=80, color=color, edgecolors='k', alpha=proj_alpha)
+        # XZ back wall (y = pc1_max): Time vs PC2
+        ax2b.plot(t, pc1_max, proj[:, 1], linewidth=0.8, alpha=proj_alpha, color=color, linestyle='--')
+        ax2b.scatter(t[0], pc1_max, proj[0, 1], marker='o', s=60, color=color, edgecolors='k', alpha=proj_alpha)
+        ax2b.scatter(t[-1], pc1_max, proj[-1, 1], marker='s', s=80, color=color, edgecolors='k', alpha=proj_alpha)
+        # # YZ side wall (x = t_min): PC1 vs PC2
+        # ax2b.plot(t_min, proj[:, 0], proj[:, 1], linewidth=0.8, alpha=proj_alpha, color=color)
+
+    # Main 3-D curves (drawn after projections so they layer on top)
     for stem, proj in projected.items():
         label = LABEL_MAP.get(stem, stem)
         color = COLOR_MAP.get(stem, None)
-        ax3.plot(proj[:, 0], proj[:, 1], proj[:, 2], linewidth=1.0,
-                 alpha=0.8, label=label, color=color)
-        ax3.scatter(proj[0, 0], proj[0, 1], proj[0, 2], marker='o', s=60,
-                    color=color, edgecolors='k', zorder=5)
-        ax3.scatter(proj[-1, 0], proj[-1, 1], proj[-1, 2], marker='X', s=80,
-                    color=color, edgecolors='k', zorder=5)
+        t = np.arange(proj.shape[0])
+        ax2b.plot(t, proj[:, 0], proj[:, 1], linewidth=1.5,
+                  alpha=1.0, label=label, color=color)
+        ax2b.scatter(t[0], proj[0, 0], proj[0, 1], marker='o', s=60,
+                     color=color, edgecolors='k', zorder=5)
+        ax2b.scatter(t[-1], proj[-1, 0], proj[-1, 1], marker='s', s=80,
+                     color=color, edgecolors='k', zorder=5)
 
-    ax3.set_xlabel(f"PC1 ({pca.explained_variance_ratio_[0]*100:.1f}%)", labelpad=20)
-    ax3.set_ylabel(f"PC2 ({pca.explained_variance_ratio_[1]*100:.1f}%)", labelpad=20)
-    ax3.set_zlabel(f"PC3 ({pca.explained_variance_ratio_[2]*100:.1f}%)", labelpad=20)
-    # ax3.set_title("3-D PCA of Connectome RNN Hidden States")
-    # ax3.legend(loc="best")
-    fig3.tight_layout()
+    fig2b.tight_layout()
+
+    # # ---- Plot 3: 3-D PCA trajectories ----
+    # fig3 = plt.figure(figsize=(9, 7))
+    # ax3 = fig3.add_subplot(111, projection='3d')
+    # for stem, proj in projected.items():
+    #     label = LABEL_MAP.get(stem, stem)
+    #     color = COLOR_MAP.get(stem, None)
+    #     ax3.plot(proj[:, 0], proj[:, 1], proj[:, 2], linewidth=1.0,
+    #              alpha=1.0, label=label, color=color)
+    #     ax3.scatter(proj[0, 0], proj[0, 1], proj[0, 2], marker='o', s=60,
+    #                 color=color, edgecolors='k', zorder=5)
+    #     ax3.scatter(proj[-1, 0], proj[-1, 1], proj[-1, 2], marker='X', s=80,
+    #                 color=color, edgecolors='k', zorder=5)
+
+    # ax3.set_xlabel(f"PC1 ({pca.explained_variance_ratio_[0]*100:.1f}%)", labelpad=20)
+    # ax3.set_ylabel(f"PC2 ({pca.explained_variance_ratio_[1]*100:.1f}%)", labelpad=20)
+    # ax3.set_zlabel(f"PC3 ({pca.explained_variance_ratio_[2]*100:.1f}%)", labelpad=20)
+    # # ax3.set_title("3-D PCA of Connectome RNN Hidden States")
+    # # ax3.legend(loc="best")
+
+    # # Wall projections for Plot 3
+    # pc1_min3, pc1_max3 = ax3.get_xlim()
+    # pc2_min3, pc2_max3 = ax3.get_ylim()
+    # pc3_min3, pc3_max3 = ax3.get_zlim()
+    # for stem, proj in projected.items():
+    #     color = COLOR_MAP.get(stem, None)
+    #     # XY floor (z = pc3_min): PC1 vs PC2
+    #     ax3.plot(proj[:, 0], proj[:, 1], pc3_min3, linewidth=0.8, alpha=proj_alpha, color=color)
+    #     # XZ back wall (y = pc2_max): PC1 vs PC3
+    #     ax3.plot(proj[:, 0], pc2_max3, proj[:, 2], linewidth=0.8, alpha=proj_alpha, color=color)
+    #     # YZ side wall (x = pc1_min): PC2 vs PC3
+    #     ax3.plot(pc1_min3, proj[:, 1], proj[:, 2], linewidth=0.8, alpha=proj_alpha, color=color)
+
+    # fig3.tight_layout()
+
+    # ---- Plot: Bar chart of average PCA distance to 1st curve ----
+    stems = list(data.keys())  # sorted order from glob
+    ref_stem = stems[0]        # 1st curve is the reference
+    ref_proj = projected_10[ref_stem]  # (T, 10)
+
+    bar_labels = []
+    bar_means = []
+    bar_stds = []
+    for stem in stems[1:]:
+        other_proj = projected_10[stem]  # (T, 10)
+        # Pointwise Euclidean distance in 10-D PCA space
+        min_T = min(ref_proj.shape[0], other_proj.shape[0])
+        dists = np.linalg.norm(ref_proj[:min_T] - other_proj[:min_T], axis=1)
+        bar_labels.append(LABEL_MAP.get(stem, stem))
+        bar_means.append(np.mean(dists))
+        bar_stds.append(np.std(dists))
+
+    fig_bar, ax_bar = plt.subplots(figsize=(6, 5))
+    x_pos = np.arange(len(bar_labels))
+    bar_colors = [COLOR_MAP.get(stems[i + 1], None) for i in range(len(bar_labels))]
+    ax_bar.bar(x_pos, bar_means, yerr=bar_stds, capsize=6,
+               color=bar_colors, edgecolor='k', width=0.5, alpha=0.85)
+    ax_bar.set_xticks(x_pos)
+    ax_bar.set_xticklabels(bar_labels)
+    ax_bar.set_ylabel("Euclidean Distance (10 PCs)")
+    ax_bar.set_title(f"Avg Distance to {LABEL_MAP.get(ref_stem, ref_stem)}")
+    ax_bar.grid(True, alpha=0.3, axis='y')
+    fig_bar.tight_layout()
 
     plt.show()
 
