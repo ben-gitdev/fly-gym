@@ -2,7 +2,6 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from torch.distributions import Normal
 from typing import Any, Dict, Optional, Tuple, Sequence
 import math
 import torchvision.models as models
@@ -18,8 +17,6 @@ class EfficientNetAgent(nn.Module):
         action_dim: int = 2,
         hidden_size: int = 256,
         dtype: torch.dtype = torch.float32,
-        learn_policy_std: bool = False,
-        policy_std_init: float = 0.3,
     ):
         super().__init__()
         self.action_dim = action_dim
@@ -61,15 +58,6 @@ class EfficientNetAgent(nn.Module):
             nn.ReLU(),
             nn.Linear(128, action_dim)
         )
-
-        # 4. Optional: Learnable Std
-        if learn_policy_std:
-            init_log_std = math.log(max(policy_std_init, 1e-6))
-            self.policy_log_std = nn.Parameter(
-                torch.full((self.action_dim,), float(init_log_std), dtype=dtype)
-            )
-        else:
-            self.register_parameter("policy_log_std", None)
 
         # 5. Normalization stats (ImageNet - Grayscale)
         # RGB mean: [0.485, 0.456, 0.406] -> avg: 0.449

@@ -1,6 +1,6 @@
 # fly-gym: A Connectome-Constrained RNN for Visual Navigation
 
-This repository trains an artificial recurrent neural network whose connectivity is directly constrained by the **_Drosophila_ FAFB/FlyWire brain connectome** (Princeton FlyWire, `flywire_fafb_v783`) to perform vision-guided goal-navigation and obstacle avoidance in a simulated 3D arena. The connectome-derived network is trained with imitation learning and reinforcement learning and is benchmarked against several non-biological baselines to ask how much of the network's navigation ability is attributable to the real fly wiring diagram, as opposed to network size, topology, or a conventional CNN vision pipeline.
+This repository trains an artificial recurrent neural network whose connectivity is directly constrained by the **_Drosophila_ FAFB/FlyWire brain connectome** (Princeton FlyWire, `flywire_fafb_v783`) to perform vision-guided goal-navigation and obstacle avoidance in a simulated 3D arena. The connectome-derived network is trained with imitation learning and is benchmarked against several non-biological baselines to ask how much of the network's navigation ability is attributable to the real fly wiring diagram, as opposed to network size, topology, or a conventional CNN vision pipeline.
 
 This code accompanies the paper: **[arXiv:2607.00025](https://arxiv.org/abs/2607.00025)**.
 
@@ -8,7 +8,7 @@ This code accompanies the paper: **[arXiv:2607.00025](https://arxiv.org/abs/2607
 
 - **Body / world:** a two-wheeled differential-drive robot with two forward-facing cameras, simulated in [MuJoCo](https://mujoco.org/), navigating toward a goal in an arena scattered with cylindrical obstacles.
 - **Brain:** every unit in the RNN corresponds to one neuron in the fly connectome, and every recurrent weight corresponds to a synapse-count-weighted connection from the connectome edge list. Camera images are converted into photoreceptor-like input via a virtual retina model (log transform + high-pass L1/L2 and low-pass L3 filtering) and injected into the correct visual-column neurons; the network's descending neurons are read out into a velocity/steering command.
-- **Training:** the connectome RNN (and the baseline networks) are first trained with **DAgger** imitation learning against an analytic **VFH\*** (Vector Field Histogram + A\*) planner + PID teacher, and can optionally be fine-tuned further with **on-policy PPO** reinforcement learning.
+- **Training:** the connectome RNN (and the baseline networks) are trained with **DAgger** imitation learning against an analytic **VFH\*** (Vector Field Histogram + A\*) planner + PID teacher.
 - **Comparisons:** the same task and training pipeline are used to train several non-connectome baselines (see [Models](#models)) so that navigation performance, robustness, and internal dynamics (via PCA of hidden-state trajectories) can be compared across architectures.
 
 ## Repository Structure
@@ -16,7 +16,7 @@ This code accompanies the paper: **[arXiv:2607.00025](https://arxiv.org/abs/2607
 ```
 fly-gym/
 ├── agents/                          # Policy wrappers (observation -> action)
-│   ├── connectome_rnn_agent.py      # ConnectomeAgent: virtual retina + connectome RNN + readout/value heads
+│   ├── connectome_rnn_agent.py      # ConnectomeAgent: virtual retina + connectome RNN + readout head
 │   ├── mobilenet_agent.py           # MobileNetV3-Large encoder + GRU baseline
 │   ├── efficientnet_agent.py        # EfficientNet-B0 encoder + GRU baseline
 │   ├── dual_backbone_agent.py       # Two independent CNN backbones (one per eye) + GRU
@@ -36,11 +36,9 @@ fly-gym/
 │   └── create_random_connectome.py  # Builds a degree-preserving randomized-edge control connectome
 ├── shared_config.py                 # Central paths/hyperparameters shared by the training scripts
 ├── train_connectome_rnn_dagger.py   # DAgger imitation learning for the connectome RNN
-├── train_connectome_rnn_rl.py       # PPO fine-tuning for the connectome RNN
 ├── train_visionnet_dagger.py        # DAgger imitation learning for MobileNet/EfficientNet/DualBackbone
 ├── run_connectome_rnn_checkpoint.py # Roll out / evaluate a trained connectome RNN checkpoint
 ├── run_vision_agent_checkpoint.py   # Roll out / evaluate a trained vision-baseline checkpoint
-├── run_critic_warmup.py             # Warm-start the PPO value head before RL fine-tuning
 ├── analysis_pca.py                  # PCA of recorded hidden-state trajectories (per sensory condition)
 ├── analysis_pca_statistics.py       # Paired statistics on PCA trajectory distances across conditions
 ├── collision_statistics.py          # Aggregate collision counts / success rate across eval runs
@@ -58,7 +56,7 @@ fly-gym/
 
 - **Robot:** differential-drive base with a left/right camera pair (`cam_left`, `cam_right`), simulated at 128x128 by default.
 - **Arena:** a bounded square arena (configurable half-extent) with up to 20 randomly placed cylindrical obstacles and a randomly placed goal, re-sampled every episode.
-- **Observation:** stereo camera images, a goal-direction vector, a binary collision flag + contact angle, a wind/airflow direction vector (for the connectome agent's Johnston's organ input), and a privileged state vector (pose, velocity, k-nearest obstacles) used only by the RL value head.
+- **Observation:** stereo camera images, a goal-direction vector, a binary collision flag + contact angle, a wind/airflow direction vector (for the connectome agent's Johnston's organ input), and a privileged state vector (pose, velocity, k-nearest obstacles) used by the DAgger training pipeline to classify trajectory segments (straight/turn/collision) for balanced sampling.
 - **Action:** `[velocity, heading_angle]`, converted internally to left/right wheel commands.
 - **Reward:** progress toward the goal, exploration bonus, control/time penalties, a collision penalty, and a "danger" penalty that discourages driving toward nearby walls/obstacles.
 - **Episode data:** trajectories, obstacle layouts, collision flags, per-neuron recorded activity, and full hidden-state tensors can all be logged to `eval_data/` for offline analysis.
@@ -108,11 +106,9 @@ All scripts are configured by editing constants near the top of the file (there 
 | Script | Purpose |
 |---|---|
 | `train_connectome_rnn_dagger.py` | DAgger imitation learning for the connectome RNN. Rolls out the current policy (vectorized across `N_ENVS` MuJoCo envs), mixes in teacher actions per a decaying `beta` schedule, buckets training chunks into `start/straight/turn/collision/pre-collision` categories for balanced sampling, and trains with truncated BPTT (`T_BURN` warmup + `T_UNROLL` steps) with gradient accumulation. |
-| `train_connectome_rnn_rl.py` | PPO-style on-policy RL fine-tuning of the connectome RNN (GAE advantages, truncated-BPTT policy/value updates, clipped surrogate objective), typically initialized from a DAgger checkpoint. |
-| `run_critic_warmup.py` | Warms up the PPO value head against a frozen/near-frozen policy before full RL fine-tuning begins. |
 | `train_visionnet_dagger.py` | Same DAgger recipe applied to `MobileNetAgent` / `EfficientNetAgent` / `DualBackboneAgent` (`AGENT` constant selects which), with camera-dropout augmentation (blackout left/right/both eyes) for robustness. |
 
-`shared_config.configure_optimizer` centralizes which parameter groups (RNN weights, biases, per-type alpha, readout head, value head, input-scale gains, wind MLP, virtual-retina parameters) are trainable, with a reduced learning rate for the per-cell-type leak parameters.
+`shared_config.configure_optimizer` centralizes which parameter groups (RNN weights, biases, per-type alpha, readout head, input-scale gains, wind MLP, virtual-retina parameters) are trainable, with a reduced learning rate for the per-cell-type leak parameters.
 
 ## Evaluation & Analysis
 
@@ -167,14 +163,10 @@ opencv-python
 # 2. Train the connectome RNN with DAgger imitation learning
 python train_connectome_rnn_dagger.py
 
-# 3. (Optional) Fine-tune with on-policy PPO
-python run_critic_warmup.py
-python train_connectome_rnn_rl.py
-
-# 4. Evaluate a checkpoint (edit CHECKPOINT at the top of the script first)
+# 3. Evaluate a checkpoint (edit CHECKPOINT at the top of the script first)
 python run_connectome_rnn_checkpoint.py
 
-# 5. Train a CNN baseline for comparison (set AGENT = "efficientnet" | "mobilenet" in the script)
+# 4. Train a CNN baseline for comparison (set AGENT = "efficientnet" | "mobilenet" in the script)
 python train_visionnet_dagger.py
 ```
 

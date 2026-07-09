@@ -2,14 +2,13 @@ import math
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from torch.distributions import Normal
 from typing import Any, Dict, Optional, Sequence, Tuple
 # from environment.mujoco_two_cam_env_random_obstacles import MuJoCoTwoCamEnv
 
 
 class ConnectomeAgent(nn.Module):
     """
-    Wrap the connectome RNN cell and expose a policy/value head that
+    Wrap the connectome RNN cell and expose a readout head that
     operates on photoreceptor activations instead of learned image encoders.
     """
 
@@ -20,17 +19,13 @@ class ConnectomeAgent(nn.Module):
         input_splits: Dict[str, Tuple[int, int]],
         dtype: torch.dtype = torch.float32,
         input_scale_init: float = 1.0,
-        use_value_head: bool = False,
-        learn_policy_std: bool = False,
-        policy_std_init: float = 0.3,
         # env: MuJoCoTwoCamEnv = None
     ):
         super().__init__()
         # self.env = env
         self.cell = cell
         self.input_splits = input_splits  # name -> (start, end) indices into flat input vector
-        self.action_dim = cell.readout_head[-1].out_features if hasattr(cell, "readout_head") else 2
-        
+
         # Per-type input scaling
         # Initialize all to the same value first
         init_val = float(input_scale_init)
@@ -72,22 +67,6 @@ class ConnectomeAgent(nn.Module):
             persistent=False,
         )
 
-        # Optional RL heads
-        self.value_head: Optional[nn.Module] = None
-        self.priv_obs_dim = 0
-        if use_value_head:
-            # If privileged obs dim > 0, we concat it to the RNN hidden state
-            # If passed as kwarg (we can check kwarg in init but let's assume standard use)
-            pass 
-
-        if learn_policy_std:
-            init_log_std = math.log(max(policy_std_init, 1e-6))
-            self.policy_log_std = nn.Parameter(
-                torch.full((self.action_dim,), float(init_log_std), dtype=dtype)
-            )
-        else:
-            self.register_parameter("policy_log_std", None)
-
         # NEW: Wind MLP
         # Check if "wind" is in input_splits and has length > 0
         if "wind" in self.input_splits and self._segment_length("wind") > 0:
@@ -118,23 +97,6 @@ class ConnectomeAgent(nn.Module):
         
         # L3 is Low Pass (Sustained), so it needs a different alpha (slower decay)
         self.l3_alpha = nn.Parameter(torch.tensor(0.1))
-
-    def init_value_head(self, priv_obs_dim=0):
-        # ... (rest of method unchanged) ...
-        # Helper to init value head after construction if needed, or re-init
-        self.priv_obs_dim = priv_obs_dim
-        input_dim = self.cell.Nout + priv_obs_dim
-        self.value_head = nn.Sequential(
-            nn.Linear(input_dim, 128, dtype=self.input_scale_vision_L1.dtype),
-            nn.ReLU(),
-            nn.Linear(128, 1, dtype=self.input_scale_vision_L1.dtype),
-        )
-
-    def set_value_head_config(self, use_value_head: bool, priv_obs_dim: int = 0):
-         if not use_value_head:
-             self.value_head = None
-             return
-         self.init_value_head(priv_obs_dim)
 
     def reset_vision_state(self):
         """Reset internal vision states (e.g. for motion detection) at episode start."""
@@ -554,31 +516,6 @@ class ConnectomeAgent(nn.Module):
 
         return hT, y
 
-    def _value_from_hidden(self, h: torch.Tensor, priv_obs: Optional[torch.Tensor] = None) -> torch.Tensor:
-        if self.value_head is None:
-            raise RuntimeError("Value head is disabled; enable use_value_head to compute values.")
-        
-        dn_act = h.index_select(1, self.cell.output_nodes)
-        
-        if self.priv_obs_dim > 0:
-            if priv_obs is None:
-                raise ValueError(f"Value head expects privileged obs of dim {self.priv_obs_dim}, got None")
-            # Concat
-            inp = torch.cat([dn_act, priv_obs], dim=1)
-        else:
-            inp = dn_act
-            
-        return self.value_head(inp).view(-1)
-
-    def _policy_dist(self, mean: torch.Tensor) -> Normal:
-        if self.policy_log_std is None:
-            log_std = torch.zeros_like(mean)
-        else:
-            log_std = self.policy_log_std.to(device=mean.device, dtype=mean.dtype)
-            log_std = log_std.view(1, -1).expand_as(mean)
-        std = torch.exp(log_std).clamp(min=1e-6)
-        return Normal(mean, std)
-
     def forward_sequence(
         self,
         xs: torch.Tensor,
@@ -638,49 +575,5 @@ class ConnectomeAgent(nn.Module):
         y_out[..., 0] = torch.tanh(y_out[..., 0]) *3
         y_out[..., 1] = math.pi * torch.tanh(y_out[..., 1])
         
-        # Return: h_final (for RNN continuity), y_out (policy), dn_seq (for value)
+        # Return: h_final (for RNN continuity), y_out (actions), dn_seq (output-neuron activations)
         return h_final, y_out, dn_seq
-
-    def act(
-        self,
-        h: torch.Tensor,
-        obs: Dict[str, Any],
-        x: Optional[torch.Tensor] = None,
-        deterministic: bool = False,
-        priv_obs: Optional[torch.Tensor] = None,
-    ):
-        """
-        RL-friendly action helper that returns action, log prob, and value (if enabled).
-        Keeps the original `step` API intact for DAgger users.
-        
-        Action dimensions:
-        - action[:, 0]: velocity in [-1, 1]
-        - action[:, 1]: heading angle in [-π, π]
-        """
-        # x=self.x_to_action(x) # Removed double call, step() handles it
-        hT, mean = self.step(h, obs, x=x)
-        dist = self._policy_dist(mean)
-        
-        if deterministic:
-            action_out = mean
-            # For deterministic, log_prob is technically undefined/inf, but we return prob of mode
-            log_prob = dist.log_prob(mean).sum(dim=-1)
-        else:
-            raw_action = dist.rsample()
-            
-            # PPO CORRECTNESS FIX:
-            # 1. Calculate log_prob on the RAW action (the latent Gaussian sample)
-            #    This ensures the probability density matches the random variable.
-            # 2. Return the CLAMPED action to the env.
-            log_prob = dist.log_prob(raw_action).sum(dim=-1)
-            
-            # Apply per-dimension clamping for environment interaction
-            clamped_vel = raw_action[:, 0].clamp(-1.0, 1.0)
-            clamped_angle = raw_action[:, 1].clamp(-math.pi, math.pi)
-            action_out = torch.stack([clamped_vel, clamped_angle], dim=-1)
-        
-        value = None
-        if self.value_head is not None:
-            value = self._value_from_hidden(hT, priv_obs=priv_obs)
-             
-        return hT, action_out, log_prob, value

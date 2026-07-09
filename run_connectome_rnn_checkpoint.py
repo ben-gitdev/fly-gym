@@ -43,7 +43,6 @@ from train_connectome_rnn_dagger import (
     BATCH_CHUNK,
     ROW_TILE_SIZE,
 )
-from train_connectome_rnn_rl import CTRL_PENALTY, TIME_PENALTY, PROG_SCALE, GOAL_BONUS, CONTACT_PENALTY
 from core.utils import build_connectome_cell, obs_to_torch
 
 
@@ -56,6 +55,12 @@ RECORD_CSV = None#"connectomes/drosophila adult connectome/moonwalker_neurons.cs
 OVERWRITE_CSV = None#"connectomes/drosophila adult connectome/moonwalker_neurons.csv"    # e.g., "neurons_to_overwrite.csv"
 END_ON_COLLISION = False
 MAX_EPISODE_STEPS = 600
+
+# Reward-shaping constants for env construction during evaluation rollouts
+# (kept in sync with the values used during DAgger training).
+CTRL_PENALTY = 0.001
+TIME_PENALTY = 0.01
+PROG_SCALE = 10.0
 
 
 def _make_env(render_mode: Optional[str], n_obstacles: int) -> MuJoCoTwoCamEnv:
