@@ -13,8 +13,6 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from core.astar import AStarGridPlanner, GridSpec
 
 
-XML_MODEL = Path(__file__).with_name("mujoco_model_random_obstacles.xml").read_text()
-
 def _quat_to_yaw(q):
     w, x, y, z = q
     siny_cosp = 2.0 * (w * z + x * y)
@@ -43,16 +41,26 @@ class MuJoCoTwoCamEnv(gym.Env):
 
     metadata = {"render_modes": ["human", "rgb_array"]}
 
+    # Two scene variants, matching the paper's two evaluated texture conditions:
+    #   "checker"   -- procedural checkerboard textures, used for TRAINING and the
+    #                  in-distribution checkerboard evaluation (default).
+    #   "realistic" -- photo-realistic PNG textures (grass/concrete/sky), used ONLY
+    #                  for the out-of-distribution generalization evaluation.
+    TEXTURE_XML_BY_MODE = {
+        "checker": "mujoco_model_random_obstacles.xml",
+        "realistic": "mujoco_model_random_obstacles_realistic.xml",
+    }
+
     def __init__(self,
-                 width=84, 
+                 width=84,
                  height=84,
                  max_episode_steps=600,
                  n_obstacles=20,
-                 goal_radius=0.8, 
+                 goal_radius=0.8,
                  goal_bonus=10.0,
-                 ctrl_penalty=1e-3, 
+                 ctrl_penalty=1e-3,
                  contact_penalty=0.5,
-                 arena_half_extent=5.0, 
+                 arena_half_extent=5.0,
                  seed=None,
                  render_mode=None,
                  explore_binsize=0.2,
@@ -61,8 +69,16 @@ class MuJoCoTwoCamEnv(gym.Env):
                  frame_skip=10,
                  stall_threshold=0.002,
                  stall_limit=50,
-                 end_on_collision=False):
+                 end_on_collision=False,
+                 texture_mode="checker"):
         super().__init__()
+
+        if texture_mode not in self.TEXTURE_XML_BY_MODE:
+            raise ValueError(
+                f"Unknown texture_mode={texture_mode!r}; expected one of "
+                f"{sorted(self.TEXTURE_XML_BY_MODE)}"
+            )
+        self.texture_mode = texture_mode
 
         self.W, self.H = int(width), int(height)
         self.max_steps = int(max_episode_steps)
@@ -82,7 +98,8 @@ class MuJoCoTwoCamEnv(gym.Env):
         self.stall_limit = int(stall_limit)
         self.end_on_collision = bool(end_on_collision)
 
-        self.model = MjModel.from_xml_string(XML_MODEL)
+        xml_name = self.TEXTURE_XML_BY_MODE[texture_mode]
+        self.model = mujoco.MjModel.from_xml_path(str(Path(__file__).with_name(xml_name)))
         self.data = MjData(self.model)
         
         # Renderer for sensors (cameras)
@@ -273,9 +290,8 @@ class MuJoCoTwoCamEnv(gym.Env):
         #     y_jid = self.obstacle_y_joint_ids[0]
         #     self.model.jnt_range[x_jid, :] = [ox - 1e-4, ox + 1e-4]
         #     self.model.jnt_range[y_jid, :] = [oy - 1e-4, oy + 1e-4]
-
-        self.data.qpos[:] = qpos
-        self.data.qvel[:] = 0.0
+        # self.data.qpos[:] = qpos
+        # self.data.qvel[:] = 0.0
 
         mujoco.mj_forward(self.model, self.data)
 

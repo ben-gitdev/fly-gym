@@ -5,6 +5,7 @@ Uses the same preprocessing pipeline as train_visionnet_dagger.py to ensure
 observation processing matches training exactly.
 """
 
+import argparse
 import os
 import time
 import csv
@@ -199,9 +200,9 @@ def run_episode(env, agent, device, dtype, render=False, render_skip=1,
         trajectory.append([robot_pos[0], robot_pos[1], int(collision)])
         # --------------------------------------------
         
-        # if render and steps % render_skip == 0:
-        #     env.render()
-        #     maybe_show_cameras(obs)
+        if render and steps % render_skip == 0:
+            env.render()
+            maybe_show_cameras(obs)
         
         # CPU preprocessing (matches training pipeline)
         xs_cpu = preprocess_fn(obs, dtype=np_dtype, vision=vision)
@@ -317,35 +318,50 @@ def _build_agent(model_type: str, device, dtype):
         raise ValueError(f"Unknown model type: {model_type}")
     return agent.to(device=device, dtype=dtype)
 
+def parse_args():
+    parser = argparse.ArgumentParser(
+        description="Run evaluation rollouts for a trained vision-based agent "
+                     "(EfficientNet/MobileNet/Dual-Backbone) checkpoint."
+    )
+    parser.add_argument(
+        "checkpoint",
+        help="Path to the .pt checkpoint to evaluate. Required: this used to default to "
+             "'efficientnet_dagger_final_robust.pt' with a silent 'pick any checkpoint found' "
+             "fallback, which made it ambiguous which trained model actually produced a given "
+             "result (see CLEANUP_PLAN.md item #6). Now the caller must say explicitly.",
+    )
+    parser.add_argument(
+        "--model-type",
+        choices=["efficientnet", "mobilenet", "dual_efficientnet", "dual_mobilenet"],
+        default=None,
+        help="Model architecture. Default: auto-detected from the checkpoint filename "
+             "(see _detect_model_type).",
+    )
+    return parser.parse_args()
+
+
 def main():
-    
-    checkpoint_path = os.path.join(CHECKPOINT_DIR, "mobilenet_dagger_final_robust.pt")
-    model_type = "mobilenet"
-    vision = [True, False]
+    args = parse_args()
+
+    checkpoint_path = args.checkpoint
+    if not os.path.exists(checkpoint_path):
+        raise FileNotFoundError(
+            f"Checkpoint not found: {checkpoint_path!r}. Available checkpoints in "
+            f"{CHECKPOINT_DIR}/: {[f for f in os.listdir(CHECKPOINT_DIR) if f.endswith('.pt')]}"
+        )
+    model_type = args.model_type or _detect_model_type(os.path.basename(checkpoint_path))
+    vision = [False, False]
 
     episodes = 500
-    render = False
+    render = True
     # Internal State Recording Config
     save_internal_state_episodes = [53]  # e.g., [1, 5, 10] to save those episodes
     internal_state_mode = "gru_mlp"  # "none", "gru_mlp", or "all"
     # ---------------------
-    
+
     device = get_device()
     print(f"Using device: {device}")
-
-    # Check if checkpoint exists
-    if not os.path.exists(checkpoint_path):
-        # Try finding *any* checkpoint
-        print(f"Checkpoint not found at {checkpoint_path}")
-        available = [f for f in os.listdir(CHECKPOINT_DIR) if f.endswith(".pt")]
-        if available:
-            print(f"Found checkpoints: {available}")
-            checkpoint_path = os.path.join(CHECKPOINT_DIR, available[0])
-            model_type = _detect_model_type(available[0])
-            print(f"Defaulting to {checkpoint_path} (detected type: {model_type})")
-        else:
-            print(f"No checkpoints found in {CHECKPOINT_DIR}/. Exiting.")
-            return
+    print(f"Checkpoint: {checkpoint_path} (model_type={model_type})")
 
     # 1. Initialize Environment
     render_mode = "human" if render else None
