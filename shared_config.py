@@ -1,7 +1,6 @@
 """
 Shared training configuration module.
-Used by both train_connectome_rnn_dagger.py and train_connectome_rnn_rl.py 
-to ensure consistent optimizer configuration.
+Used by train_connectome_rnn_dagger.py to ensure consistent optimizer configuration.
 """
 
 import torch

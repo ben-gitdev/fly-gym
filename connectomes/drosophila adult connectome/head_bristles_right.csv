@@ -1,0 +1,41 @@
+root_id,label,name,nt_type,flow,super_class,class,sub_class,cell_type,hemilineage,nerve,connectivity_tag,side,input_synapses,output_synapses
+720575940608763460,['JO-F'],GNG.2175,ACH,afferent,sensory,mechanosensory,head_bristle,['BM_Ant'],,AN,['reciprocal'; 'feedforward_loop_participant'; '3_cycle_participant'],right,38,292
+720575940611132890,['JO-F'],GNG.1207,ACH,afferent,sensory,mechanosensory,head_bristle,['BM_Ant'],,AN,['rich_club'; 'reciprocal'; 'feedforward_loop_participant'; '3_cycle_participant'],right,193,1126
+720575940620556680,['JO-F'],GNG.2910,ACH,afferent,sensory,mechanosensory,head_bristle,['BM_Ant'],,AN,['feedforward_loop_participant'; '3_cycle_participant'],right,16,123
+720575940644439860,['JO-F'],GNG.1545,ACH,afferent,sensory,mechanosensory,head_bristle,['BM_Ant'],,AN,['rich_club'; 'reciprocal'; 'feedforward_loop_participant'; '3_cycle_participant'],right,103,626
+720575940603728561,['JO-F'],GNG.1705,ACH,afferent,sensory,mechanosensory,head_bristle,['BM_Ant'],,AN,['rich_club'; 'reciprocal'; 'feedforward_loop_participant'; '3_cycle_participant'],right,60,482
+720575940627172751,['JO-F'],GNG.1846,ACH,afferent,sensory,mechanosensory,head_bristle,['BM_Ant'],,AN,['rich_club'; 'reciprocal'; 'feedforward_loop_participant'; '3_cycle_participant'],right,47,418
+720575940629917471,['JO-F'],GNG.1736,ACH,afferent,sensory,mechanosensory,head_bristle,['BM_Ant'],,AN,['rich_club'; 'reciprocal'; 'feedforward_loop_participant'; '3_cycle_participant'],right,127,469
+720575940613078993,['JO-F'],GNG.2928,ACH,afferent,sensory,mechanosensory,head_bristle,['BM_Ant'],,AN,['feedforward_loop_participant'],right,0,86
+720575940627488455,['JO-F'],GNG.1374,ACH,afferent,sensory,mechanosensory,head_bristle,['BM_Ant'],,AN,['rich_club'; 'reciprocal'; 'feedforward_loop_participant'; '3_cycle_participant'],right,165,1488
+720575940640240885,['JO-F'],GNG.3122,ACH,afferent,sensory,mechanosensory,head_bristle,['BM_Ant'],,AN,['feedforward_loop_participant'],right,0,94
+720575940612453526,['JO-F'],GNG.3104,ACH,afferent,sensory,mechanosensory,head_bristle,['BM_Ant'],,AN,['reciprocal'; 'feedforward_loop_participant'],right,18,109
+720575940629941356,['JO-F'],GNG.1487,ACH,afferent,sensory,mechanosensory,head_bristle,['BM_Ant'],,AN,['rich_club'; 'reciprocal'; 'feedforward_loop_participant'; '3_cycle_participant'],right,190,817
+720575940640760016,['JO-F'],NO_CONS.2911,,afferent,sensory,mechanosensory,head_bristle,['BM_Ant'],,AN,['feedforward_loop_participant'],right,13,183
+720575940613669357,['JO-F'],GNG.1835,ACH,afferent,sensory,mechanosensory,head_bristle,['BM_Ant'],,AN,['rich_club'; 'reciprocal'; 'feedforward_loop_participant'; '3_cycle_participant'],right,119,567
+720575940628194647,['JO-F'],GNG.1875,ACH,afferent,sensory,mechanosensory,head_bristle,['BM_Ant'],,AN,['rich_club'; 'reciprocal'; 'feedforward_loop_participant'; '3_cycle_participant'],right,97,458
+720575940629440067,['JO-F'],GNG.1715,ACH,afferent,sensory,mechanosensory,head_bristle,['BM_Ant'],,AN,['rich_club'; 'reciprocal'; 'feedforward_loop_participant'; '3_cycle_participant'],right,103,455
+720575940638284607,['JO-F'],GNG.1505,ACH,afferent,sensory,mechanosensory,head_bristle,['BM_Ant'],,AN,['rich_club'; 'reciprocal'; 'feedforward_loop_participant'; '3_cycle_participant'],right,235,1443
+720575940625179918,['JO-F'],GNG.1590,ACH,afferent,sensory,mechanosensory,head_bristle,['BM_Ant'],,AN,['rich_club'; 'reciprocal'; 'feedforward_loop_participant'; '3_cycle_participant'],right,122,596
+720575940629824378,['JO-F'],GNG.1510,ACH,afferent,sensory,mechanosensory,head_bristle,['BM_Ant'],,AN,['rich_club'; 'reciprocal'; 'feedforward_loop_participant'; '3_cycle_participant'],right,163,694
+720575940611385829,['JO-F'],GNG.3352,ACH,afferent,sensory,mechanosensory,head_bristle,['BM_Ant'],,AN,['feedforward_loop_participant'],right,5,116
+720575940642413604,[],GNG.1606,ACH,afferent,sensory,mechanosensory,head_bristle,['BM_Ant'],,AN,['rich_club'; 'reciprocal'; 'feedforward_loop_participant'; '3_cycle_participant'],right,130,622
+720575940606986691,['JO-F'],GNG.2176,ACH,afferent,sensory,mechanosensory,head_bristle,['BM_Fr'],,AN,['rich_club'; 'reciprocal'; 'feedforward_loop_participant'; '3_cycle_participant'],right,53,368
+720575940611545011,['JO-F'],GNG.2173,ACH,afferent,sensory,mechanosensory,head_bristle,['BM_Fr'],,AN,['rich_club'; 'reciprocal'; 'feedforward_loop_participant'; '3_cycle_participant'],right,36,424
+720575940629253431,['JO-F'],GNG.2309,ACH,afferent,sensory,mechanosensory,head_bristle,['BM_Fr'],,AN,['reciprocal'; 'feedforward_loop_participant'; '3_cycle_participant'],right,42,267
+720575940635618793,['JO-F'],GNG.2136,ACH,afferent,sensory,mechanosensory,head_bristle,['BM_Fr'],,AN,['rich_club'; 'reciprocal'; 'feedforward_loop_participant'; '3_cycle_participant'],right,50,580
+720575940605697824,['JO-F'],GNG.1529,ACH,afferent,sensory,mechanosensory,head_bristle,['BM_Fr'],,AN,['rich_club'; 'reciprocal'; 'feedforward_loop_participant'; '3_cycle_participant'],right,87,778
+720575940616837277,['JO-F'],GNG.1778,ACH,afferent,sensory,mechanosensory,head_bristle,['BM_Fr'],,AN,['rich_club'; 'reciprocal'; 'feedforward_loop_participant'; '3_cycle_participant'],right,95,583
+720575940624324248,['JO-F'],GNG.2007,ACH,afferent,sensory,mechanosensory,head_bristle,['BM_Fr'],,AN,['rich_club'; 'reciprocal'; 'feedforward_loop_participant'],right,35,377
+720575940616395101,['JO-F'],GNG.2280,ACH,afferent,sensory,mechanosensory,head_bristle,['BM_FrOr'],,AN,['reciprocal'; 'feedforward_loop_participant'],right,61,321
+720575940629967663,['JO-F'],GNG.1926,ACH,afferent,sensory,mechanosensory,head_bristle,['BM_FrOr'],,AN,['rich_club'; 'reciprocal'; 'feedforward_loop_participant'],right,50,417
+720575940637062975,['JO-F'],GNG.2083,ACH,afferent,sensory,mechanosensory,head_bristle,['BM_FrOr'],,AN,['rich_club'; 'reciprocal'; 'feedforward_loop_participant'; '3_cycle_participant'],right,54,308
+720575940638694307,['JO-F'],GNG.2466,ACH,afferent,sensory,mechanosensory,head_bristle,['BM_FrOr'],,AN,['reciprocal'; 'feedforward_loop_participant'; '3_cycle_participant'],right,44,191
+720575940623729968,['JO-F'],GNG.3726,ACH,afferent,sensory,mechanosensory,head_bristle,['BM_FrOr'],,AN,['reciprocal'; 'feedforward_loop_participant'],right,6,132
+720575940627177359,['JO-F'],GNG.1963,ACH,afferent,sensory,mechanosensory,head_bristle,['BM_FrOr'],,AN,['rich_club'; 'reciprocal'; 'feedforward_loop_participant'],right,33,375
+720575940623189739,[],GNG.1931,ACH,afferent,sensory,mechanosensory,head_bristle,['BM_FrOr'],,AN,['reciprocal'; 'feedforward_loop_participant'; '3_cycle_participant'],right,46,372
+720575940627444746,['gustatory receptor neuron/GRN?'],GNG.1635,ACH,afferent,sensory,mechanosensory,head_bristle,['BM_Hau'],,MxLbN,['rich_club'; 'reciprocal'; 'feedforward_loop_participant'; '3_cycle_participant'],right,128,788
+720575940625040973,[],GNG.2050,ACH,afferent,sensory,mechanosensory,head_bristle,['BM_Hau'],,MxLbN,['rich_club'; 'reciprocal'; 'feedforward_loop_participant'; '3_cycle_participant'],right,187,442
+720575940628951287,[],GNG.1873,ACH,afferent,sensory,mechanosensory,head_bristle,['BM_Hau'],,MxLbN,['rich_club'; 'reciprocal'; 'feedforward_loop_participant'; '3_cycle_participant'],right,127,503
+720575940638708058,[],GNG.1788,ACH,afferent,sensory,mechanosensory,head_bristle,['BM_Hau'],,MxLbN,['rich_club'; 'reciprocal'; 'feedforward_loop_participant'; '3_cycle_participant'],right,367,934
+720575940630678009,[],GNG.1631,ACH,afferent,sensory,mechanosensory,head_bristle,['BM_Hau'],,MxLbN,['rich_club'; 'reciprocal'; 'feedforward_loop_participant'; '3_cycle_participant'],right,278,1481

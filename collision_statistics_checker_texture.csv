@@ -1,0 +1,17 @@
+folder,collisions_mean,collisions_std,success_rate,Average SPL,Average SPL | Success,Std SPL | Success,Collisions | Success,Collisions Std | Success,Average Speed Mean,Average Speed Std
+eval_data\connectome_full_vision,0.8932,1.643,0.9288,0.8307,0.8943,0.0952,0.5436,0.9702,0.0224,0.0029
+eval_data\connectome_left_eye,2.2686,2.5076,0.7735,0.6713,0.8679,0.1104,1.2092,1.6495,0.0198,0.0044
+eval_data\connectome_right_eye,2.4563,2.7485,0.6958,0.6002,0.8625,0.1202,0.9163,1.4249,0.0198,0.0046
+eval_data\connectome_blind,4.5372,2.8778,0.4434,0.3698,0.834,0.1295,1.9489,1.9678,0.0162,0.0046
+eval_data\vision_efficientnet_robust_full_vision,1.0841,1.5706,0.9029,0.7971,0.8828,0.1057,0.7133,1.0544,0.0217,0.0029
+eval_data\vision_efficientnet_robust_left_eye,1.1068,1.5369,0.7864,0.702,0.8927,0.1014,0.642,0.9088,0.0194,0.0056
+eval_data\vision_efficientnet_robust_right_eye,1.767,1.8102,0.466,0.4196,0.9003,0.0968,0.4931,0.8445,0.0145,0.007
+eval_data\vision_efficientnet_robust_blind,0.9968,0.2732,0.0388,0.0348,0.8959,0.1007,0.0,0.0,0.0065,0.0045
+eval_data\vision_mobilenet_robust_full_vision,0.9968,1.4627,0.9159,0.8133,0.888,0.1079,0.6714,0.9461,0.0222,0.0028
+eval_data\vision_mobilenet_robust_left_eye,1.1068,1.4588,0.7346,0.6498,0.8846,0.0997,0.511,0.7605,0.0191,0.0061
+eval_data\vision_mobilenet_robust_right_eye,1.2201,1.8455,0.5825,0.5326,0.9142,0.0964,0.3111,0.7269,0.0161,0.0082
+eval_data\vision_mobilenet_robust_blind,1.1812,0.7933,0.165,0.1582,0.9584,0.0454,0.8824,0.9305,0.0086,0.0052
+eval_data\small_world_full_vision,1.1165,2.0763,0.89,0.7988,0.8975,0.0911,0.5745,1.1094,0.0204,0.0037
+eval_data\small_world_left_eye,0.8479,1.1675,0.4628,0.3995,0.8632,0.1401,0.5664,0.8011,0.0143,0.0059
+eval_data\small_world_right_eye,1.3754,1.433,0.6796,0.5606,0.8248,0.1171,0.6571,0.8046,0.0186,0.0026
+eval_data\small_world_total_blind,0.7184,1.0073,0.0259,0.0193,0.746,0.0818,1.625,0.744,0.0069,0.0028

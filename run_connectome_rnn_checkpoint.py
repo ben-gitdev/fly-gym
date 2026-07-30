@@ -43,8 +43,15 @@ from train_connectome_rnn_dagger import (
     BATCH_CHUNK,
     ROW_TILE_SIZE,
 )
-from train_connectome_rnn_rl import CTRL_PENALTY, TIME_PENALTY, PROG_SCALE, GOAL_BONUS, CONTACT_PENALTY
 from core.utils import build_connectome_cell, obs_to_torch
+
+# Reward-shaping constants below match train_connectome_rnn_rl.py's values (that module was an
+# abandoned PPO/critic training path, since removed -- see CLEANUP_PLAN.md §2d). Only
+# time_penalty/prog_scale/ctrl_penalty are actually used by _make_env() below; goal_bonus/
+# contact_penalty are passed as 0 there regardless.
+CTRL_PENALTY = 0.001
+TIME_PENALTY = 0.01
+PROG_SCALE = 10.0
 
 
 # EDGE_PATH = "connectomes/drosophila adult connectome/connections_princeton_random.csv"

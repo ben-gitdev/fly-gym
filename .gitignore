@@ -4,28 +4,48 @@ __pycache__/
 build/
 dist/
 *.log
+*.pdf
+*.jpg
+MUJOCO_LOG.TXT
 
-# Model checkpoints
+# Holding area for confirmed-dead files pending permanent deletion (see CLEANUP_PLAN.md §2d) --
+# moved here instead of rm'd outright since none of it is backed by git history.
+_pending_deletion/
+
+# Model checkpoints (host externally, see CLEANUP_PLAN.md §2c)
 *.pt
 *.pth
 
-# Data files
+# Bulk data / generated artifacts
 *.parquet
-*.csv
 *.jsonl
-
-# Specific to MuJoCo/Robotics
-*.log
 *.out
-
-# Folders
 backups/
 checkpoints/
-connectomes/
 eval_data/
 loss/
+performance_results/
 
-# references
-*.pdf
+# Result figures: ignore stray CSV/PNG dumps, keep the final published ones
+*.csv
+!collision_statistics.csv
+!collision_statistics_checker_texture.csv
 *.png
-*.jpg
+!environment/textures/*.png
+!bar_*.png
+!spl_*.png
+
+# Connectome data: ignore big raw edge lists, keep small metadata + scripts.
+# This block must come AFTER the generic *.csv rule above -- gitignore resolves
+# overlapping patterns by last-match-wins, so if the blanket *.csv rule came last
+# it would silently re-ignore the connectome exceptions below.
+connectomes/**/*.csv
+!connectomes/**/JO-C_and_JO-E.csv
+!connectomes/**/consolidated_cell_types.csv
+!connectomes/**/descending_neurons.csv
+!connectomes/**/head_bristles_*.csv
+!connectomes/**/visual_column_L1_L2_L3_rear_view_*.csv
+connectomes/**/*.py
+!connectomes/ws_small_world/generate_ws_network_new.py
+connectomes/c.elegans connectome/
+connectomes/drosophila larva connectome/
