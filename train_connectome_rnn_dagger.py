@@ -1,9 +1,5 @@
-"""
-DAgger imitation learning for the connectome RNN agent using vision-only inputs.
-Refactored to fix terminal sampling bias, action bounds, and precision issues.
-"""
-
 from __future__ import annotations
+import math
 import time as _time
 import csv
 import os
@@ -64,19 +60,19 @@ from shared_config import configure_optimizer
 # -----------------------------
 # DAgger Hyperparameters
 # -----------------------------
-N_DAGGER_ITERS = 1
-EPISODES_PER_ITER = 650
-TRAIN_STEPS_PER_ITER = 400
+N_DAGGER_ITERS = 4
+EPISODES_PER_ITER = 500
+TRAIN_STEPS_PER_ITER = 300
 N_ENVS = 10  # Number of concurrent environments for vectorized rollout
 
 BATCH_SIZE = 64
-GRAD_ACCUM_STEPS = 4  # Number of mini-batches to accumulate before optimizer step
+GRAD_ACCUM_STEPS = 2  # Number of mini-batches to accumulate before optimizer step (BATCH_SIZE*GRAD_ACCUM_STEPS=128, matches paper)
 
 T_UNROLL = 80
 T_BURN = 50
 LR = 3e-4
 
-BETA_START = 0.0 # 1.0: teacher drive, 0.0: agent drive
+BETA_START = 1.0 # 1.0: teacher drive, 0.0: agent drive
 BETA_END = 0.0
 BETA_DECAY = 0.5
 BETA_WARMUP = 0  # Number of iterations to keep beta=1.0 at start
@@ -85,7 +81,7 @@ STEERING_LOSS_SCALE = 2.0  # Prioritize steering accuracy over velocity
 
 NOISE_INTERVAL = 10
 START_NOISE = 0.5
-NOISE_DECAY = 0.0
+NOISE_DECAY = 0.2
 
 
 # -----------------------------
@@ -94,8 +90,8 @@ NOISE_DECAY = 0.0
 RATIO_STRAIGHT = 0.2
 RATIO_TURN = 0.25
 RATIO_COLLISION = 0.2
-RATIO_PRE_COLLISION = 0.2
-RATIO_START = 0.15
+RATIO_PRE_COLLISION = 0.25
+RATIO_START = 0.1
 
 # Path Analysis Parameters
 DIRECTION_THRESHOLD_DEG = 1.0  # Degrees threshold for straight vs turn
@@ -105,10 +101,10 @@ COLLISION_RECOVERY_WINDOW = T_UNROLL + 50  # Steps after collision for recovery
 MAX_CHUNKS_PER_CATEGORY = 10000  # Max chunks stored per category
 
 LOSS_CSV_PATH = os.path.join(LOSS_DIR, "connectome_rnn_dagger_loss.csv")
-FINAL_CHECKPOINT_PATH = os.path.join(CHECKPOINT_DIR, "connectome_rnn_dagger_princeton_base.pt")
+FINAL_CHECKPOINT_PATH = os.path.join(CHECKPOINT_DIR, "connectome_rnn_dagger_princeton.pt")
 
 # Path to checkpoint to resume from (set to None to train from scratch)
-RESUME_CHECKPOINT_PATH = "checkpoints/connectome_rnn_dagger_princeton.pt"
+RESUME_CHECKPOINT_PATH = None
 
 
 def maybe_show_cameras(obs):
@@ -468,7 +464,7 @@ class BalancedDAggerBuffer:
         ratios: Tuple[float, float, float, float, float] = (RATIO_STRAIGHT, RATIO_TURN, RATIO_COLLISION, RATIO_PRE_COLLISION, RATIO_START),
     ) -> Tuple[torch.Tensor, torch.Tensor]:
         """
-        Sample from 5 buffers according to ratios.
+        Sample from 5 buffers according to ratios, filling to exact batch_size.
         Ensures at least 1 sample per non-empty category.
         
         Returns:
@@ -492,29 +488,35 @@ class BalancedDAggerBuffer:
             'start': r_start,
         }
         
-        # Calculate counts (ensure at least 1 if buffer non-empty)
-        counts = {}
-        total_available = 0
-        for cat, buf in buffers.items():
-            if len(buf) > 0:
-                counts[cat] = max(1, int(batch_size * ratio_map[cat]))
-                total_available += len(buf)
-            else:
-                counts[cat] = 0
-        
-        if total_available == 0:
+        # Identify non-empty categories
+        non_empty_cats = [cat for cat, buf in buffers.items() if len(buf) > 0]
+        if not non_empty_cats:
             raise ValueError("All buffers are empty!")
         
-        # Sample from each buffer
+        # Calculate per-category counts (ensure at least 1 per non-empty category)
+        counts = {}
+        for cat in non_empty_cats:
+            counts[cat] = max(1, int(batch_size * ratio_map[cat]))
+        
+        # Sample from each category
         samples = []
-        for category, count in counts.items():
-            buffer = buffers[category]
-            if count > 0 and len(buffer) > 0:
-                # Sample with replacement if needed
-                indices = np.random.choice(len(buffer), size=min(count, len(buffer)), 
-                                          replace=(count > len(buffer)))
-                for idx in indices:
-                    samples.append(buffer[idx])
+        for cat in non_empty_cats:
+            buf = buffers[cat]
+            count = counts[cat]
+            indices = np.random.choice(len(buf), size=min(count, len(buf)),
+                                      replace=(count > len(buf)))
+            for idx in indices:
+                samples.append(buf[idx])
+        
+        # Fill remaining slots to reach exact batch_size
+        all_non_empty_bufs = [buffers[cat] for cat in non_empty_cats]
+        while len(samples) < batch_size:
+            # Pick a random non-empty category, then a random sample from it
+            buf = all_non_empty_bufs[np.random.randint(len(all_non_empty_bufs))]
+            samples.append(buf[np.random.randint(len(buf))])
+        
+        # Truncate if over (shouldn't happen normally but safety)
+        samples = samples[:batch_size]
         
         # Shuffle to mix categories
         np.random.shuffle(samples)
@@ -658,10 +660,40 @@ def rollout_and_collect_balanced(
     if need_student:
         h = torch.zeros(n_envs, agent.cell.N, device=device, dtype=dtype)
 
+    # ---- Helper: process initial observation after reset ----
+    def _process_reset_obs(i):
+        """Buffer the reset observation, run obs_to_x + x_to_action, get teacher action."""
+        obs = obs_list[i]
+        raw_obs_buf[i].append(obs)
+
+        # Restore per-env retinal state (None after reset)
+        agent.state_vision_left = vision_states_left[i]
+        agent.state_vision_right = vision_states_right[i]
+
+        obs_t = obs_to_torch(obs, device=device, dtype=dtype)
+        with torch.no_grad():
+            xs_raw = agent.obs_to_x(obs_t)
+            agent.x_to_action(xs_raw, update_state=True)
+
+        # Save updated retinal state
+        vision_states_left[i] = agent.state_vision_left
+        vision_states_right[i] = agent.state_vision_right
+
+        # Buffer pre-retina obs
+        proc_obs_buf[i].append(xs_raw.squeeze(0).cpu().numpy())
+
+        # Get teacher action for initial observation
+        teacher_action = teachers[i].act(envs[i])
+        if teacher_action is not None:
+            teacher_act_buf[i].append(teacher_action.copy())
+            action_exec[i] = teacher_action.copy()
+        # else: action_exec stays at zeros (teacher failed on first step, rare)
+
     # ---- reset all envs ----
     for i in range(n_envs):
         obs_list[i], _ = envs[i].reset()
         teachers[i].reset()
+        _process_reset_obs(i)
 
     t0 = _time.perf_counter()
 
@@ -674,12 +706,17 @@ def rollout_and_collect_balanced(
             obs, _, done_flags[i], trunc_flags[i], _ = envs[i].step(action_exec[i])
             obs_list[i] = obs
             steps[i] += 1
-            raw_obs_buf[i].append(obs)
+            # Only append non-terminal observations to keep raw_obs_buf aligned
+            # with proc_obs_buf and teacher_act_buf
+            if not done_flags[i] and not trunc_flags[i]:
+                raw_obs_buf[i].append(obs)
 
-        # 2. Per-env preprocessing: obs_to_torch -> obs_to_x (stateful retinal processing)
+        # 2. Per-env preprocessing: obs_to_torch -> obs_to_x -> x_to_action (stateful retinal processing)
         #    Must be sequential per env to maintain correct L2/L3 temporal state.
-        #    Always run obs_to_x (even with beta=1.0) to populate proc_obs_buf for chunks.
-        x_list = [None] * n_envs
+        #    Also runs x_to_action here so step 3 can call agent.cell() directly,
+        #    avoiding a second x_to_action call that would corrupt vision state.
+        x_list = [None] * n_envs          # post-retina x for RNN input
+        x_raw_list = [None] * n_envs      # pre-retina x for chunk storage
         active_ids = [i for i in range(n_envs) if active[i]]
         gpu_ids = [i for i in active_ids if not done_flags[i] and not trunc_flags[i]]
 
@@ -690,45 +727,59 @@ def rollout_and_collect_balanced(
 
             obs_t = obs_to_torch(obs_list[i], device=device, dtype=dtype)
             with torch.no_grad():
-                xs = agent.obs_to_x(obs_t)  # (1, Nin)
+                xs_raw = agent.obs_to_x(obs_t)  # (1, Nin) — pre-retina
+                xs = agent.x_to_action(xs_raw, update_state=True)  # (1, Nin_post) — post-retina
             x_list[i] = xs
+            x_raw_list[i] = xs_raw
 
-            # Save updated retinal state back
+            # Save updated retinal state back (now includes x_to_action's updates)
             vision_states_left[i] = agent.state_vision_left
             vision_states_right[i] = agent.state_vision_right
 
-            # Store pre-computed obs_to_x result as numpy for chunk processing
-            proc_obs_buf[i].append(xs.squeeze(0).cpu().numpy())
+            # Store pre-retina obs_to_x result for chunk processing (only for non-done/trunc)
+            # forward_sequence also calls x_to_action, so raw is correct here.
+            if not done_flags[i] and not trunc_flags[i]:
+                proc_obs_buf[i].append(xs_raw.squeeze(0).cpu().numpy())
 
         # 3. Batched RNN step on GPU (all active envs at once)
+        #    Call agent.cell() directly with post-retina x, avoiding double x_to_action.
         n_gpu = len(gpu_ids)
         if need_student and n_gpu > 0:
-            # Batch the pre-computed x tensors
-            x_batch = torch.cat([x_list[i] for i in gpu_ids], dim=0)  # (n_gpu, Nin)
+            # Batch the post-retina x tensors
+            x_batch = torch.cat([x_list[i] for i in gpu_ids], dim=0)  # (n_gpu, Nin_post)
+            x_batch = x_batch.unsqueeze(0)  # (1, n_gpu, Nin_post) — single time step
 
             # Gather hidden states for active envs
             gpu_idx_tensor = torch.tensor(gpu_ids, device=device, dtype=torch.long)
             h_active = h[gpu_idx_tensor]
 
             with torch.no_grad():
-                h_new, student_actions = agent.step(h_active, None, x=x_batch)
+                h_new, y = agent.cell(h_active, x_batch, checkpoint_steps=False, store_sequence=False)
+
+                # Post-process outputs (same as agent.step())
+                y = torch.nan_to_num(y, nan=0.0, posinf=0.0, neginf=0.0)
+                student_actions = y.clone()
+                student_actions[:, 0] = torch.tanh(y[:, 0]) * 3
+                student_actions[:, 1] = math.pi * torch.tanh(y[:, 1])
 
             student_actions_np = student_actions.cpu().numpy()
 
             # Write back hidden state
             h[gpu_idx_tensor] = h_new
 
-        # 4. Teacher planning (CPU)
+        # 4. Teacher planning (CPU) — skip done/truncated envs
         for i in range(n_envs):
             if not active[i]:
+                continue
+            # Done/truncated envs: mark inactive without appending teacher action
+            if done_flags[i] or trunc_flags[i]:
+                active[i] = False
                 continue
             teacher_action = teachers[i].act(envs[i])
             if teacher_action is None:
                 active[i] = False
             else:
                 teacher_act_buf[i].append(teacher_action.copy())
-            if done_flags[i] or trunc_flags[i] or not active[i]:
-                active[i] = False
 
         # 5. Compute executed action per env
         for idx_a, i in enumerate(gpu_ids):
@@ -806,11 +857,11 @@ def rollout_and_collect_balanced(
             noise_disturbing[i] = False
             noise_steps[i] = 0
             noise_vals[i] = np.zeros(2, dtype=np.float32)
-            obs_list[i], _ = envs[i].reset(seed = episodes_done)
-            # print("Episodes done: ", episodes_done)
+            obs_list[i], _ = envs[i].reset()
             teachers[i].reset()
             vision_states_left[i] = None
             vision_states_right[i] = None
+            _process_reset_obs(i)  # Buffer initial obs + teacher action
             reset_ids.append(i)
             active[i] = True
 
@@ -836,6 +887,7 @@ def rollout_and_collect_balanced(
                 teachers[i].reset()
                 vision_states_left[i] = None
                 vision_states_right[i] = None
+                _process_reset_obs(i)  # Buffer initial obs + teacher action
                 active[i] = True
             if need_student:
                 h[:] = 0.0
@@ -994,15 +1046,15 @@ def main():
             print(f"[data] Total buffer: Straight={chunk_counts['straight']}, Turn={chunk_counts['turn']}, Collision={chunk_counts['collision']}, PreCol={chunk_counts['pre_collision']}, Start={chunk_counts['start']}")
             
             losses = []
-            for _ in range(TRAIN_STEPS_PER_ITER):
+            for step_idx in range(TRAIN_STEPS_PER_ITER):
                 
                 try:
                     loss = train_step(agent, buffer, opt)
                     losses.append(loss)
                 except ValueError:
                     break
-                print(f"\r[train] Trained step {_+1}/{TRAIN_STEPS_PER_ITER}, loss={loss:.5f}. Dagger iter {it+1}/{N_DAGGER_ITERS}", end="", flush=True)
-                if (_+1 == TRAIN_STEPS_PER_ITER): print()  # Newline after last step
+                print(f"\r[train] Trained step {step_idx+1}/{TRAIN_STEPS_PER_ITER}, loss={loss:.5f}. Dagger iter {it+1}/{N_DAGGER_ITERS}", end="", flush=True)
+                if (step_idx+1 == TRAIN_STEPS_PER_ITER): print()  # Newline after last step
             # plot losses curve
             if losses:
                 plt.plot(losses)

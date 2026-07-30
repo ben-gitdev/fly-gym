@@ -5,15 +5,18 @@
     <map znear="0.001" />
   </visual>
   <asset>
-    <texture name="texplane" type="2d" builtin="checker" width="128" height="128" rgb1="0.8 0.8 0.8" rgb2="0.9 0.9 0.9" />
-    <texture name="texwall" type="2d" builtin="checker" width="64" height="64" rgb1="0.75 0.75 0.82" rgb2="0.55 0.55 0.62" />
-    <texture name="texobs" type="2d" builtin="checker" width="32" height="32" rgb1="0.7 0.2 0.2" rgb2="0.9 0.4 0.4" random="0.3" />
-    <material name="matplane" texture="texplane" texrepeat="6 6" reflectance="0.0" texuniform="true" rgba="0.2 0.2 0.2 1" specular="0.05" />
+    <texture name="skybox" type="skybox" file="textures/skybox.png" />
+    <texture name="texplane" type="2d" file="textures/ground.png" />
+    <texture name="texwall" type="cube" file="textures/wall.png" />
+    <texture name="texobs" type="cube" file="textures/obstacle.png" />
+    <material name="matplane" texture="texplane" texrepeat="1 1" reflectance="0.0" texuniform="true" rgba="1 1 1 1" specular="0.05" />
     <material name="matgoal" rgba="0.2 0.85 0.2 1" />
-    <material name="matwall" texture="texwall" texrepeat="2 1" texuniform="true" rgba="0.5 0.5 0.5 1" specular="0.05" />
+    <!-- Texuniform=false lets the texture map onto the box faces rather than world planes -->
+    <material name="matwall" texture="texwall" texrepeat="4 4" reflectance="0.0" texuniform="false" rgba="1 1 1 1" specular="0.05" />
     <material name="matrobot" rgba="0.2 0.4 0.8 1" />
     <material name="matwheel" rgba="0.1 0.1 0.1 1" />
-    <material name="matobs" texture="texobs" texrepeat="3 3" texuniform="true" rgba="0.85 0.2 0.2 1" specular="0.05" />
+    <!-- Texuniform=false ensures the texture wraps around the cylinder's circumference -->
+    <material name="matobs" texture="texobs" texrepeat="1 1" reflectance="0.0" texuniform="false" rgba="1 1 1 1" specular="0.05" />
   </asset>
   <worldbody>
     <light name="light_top" pos="0 0 6" dir="0 0 -1" diffuse="0.3 0.3 0.3" specular="0.0 0.0 0.0" ambient="0.6 0.6 0.6" directional="true" castshadow="false"/>

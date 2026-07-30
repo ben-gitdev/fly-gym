@@ -9,7 +9,6 @@ import cv2
 # Import everything needed from the training script
 from train_connectome_rnn_dagger import (
     PathAnalyzer,
-    rollout_episode,
     get_device,
     build_connectome_cell,
     ConnectomeAgent,
@@ -25,6 +24,40 @@ from train_connectome_rnn_dagger import (
 
 END_ON_COLLISION = False
 DIRECTION_THRESHOLD_DEG = 1.0
+
+
+def rollout_episode(env, teacher, agent, beta, device, dtype, beta_noise):
+    """Single-episode, pure-teacher-drive rollout for this diagnostic script.
+
+    train_connectome_rnn_dagger.py used to have a rollout_episode() with this exact
+    signature; it was replaced by the batched, multi-env rollout_and_collect_balanced()
+    used for real DAgger training/collection, which has a completely different interface
+    (buffer-filling across N envs, not "give me back one episode's raw trajectory") and
+    isn't a drop-in substitute for this script's needs. This script only ever calls with
+    beta=1.0/beta_noise=0.0 (pure teacher drive, for a clean path to tune
+    DIRECTION_THRESHOLD_DEG against), so it only implements that case -- `agent` is
+    accepted for call-site compatibility but unused, since the teacher alone drives beta=1.0.
+    """
+    if beta != 1.0 or beta_noise != 0.0:
+        raise NotImplementedError(
+            "This script's rollout_episode() only supports pure teacher-drive "
+            "(beta=1.0, beta_noise=0.0); it does not reimplement agent-blended rollout "
+            "or noise injection from rollout_and_collect_balanced()."
+        )
+    obs, _ = env.reset()
+    teacher.reset()
+    raw_obs_list = [obs]
+    teacher_actions = []
+    for _ in range(MAX_EPISODE_STEPS):
+        action = teacher.act(env)
+        if action is None:
+            return raw_obs_list, teacher_actions, len(teacher_actions) > 0
+        teacher_actions.append(action.copy())
+        obs, _, done, trunc, _ = env.step(action)
+        if done or trunc:
+            break
+        raw_obs_list.append(obs)
+    return raw_obs_list, teacher_actions, True
 
 
 def main():
@@ -45,7 +78,7 @@ def main():
 
     # 2. Setup Agent (Dummy weights are fine, we rely on Teacher for path)
     print("Building cell...")
-    cell, pr_positions, input_splits = build_connectome_cell(
+    cell, pr_positions, input_splits, _id2idx = build_connectome_cell(
         edge_path=EDGE_PATH,
         device=device,
         dtype=dtype,

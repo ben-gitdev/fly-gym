@@ -21,16 +21,25 @@ TRAIN_RETINA = True
 # -----------------------------
 # Learning Rate
 # -----------------------------
-LR = 1e-4
+LR = 3e-4
 
-# BASE_PATH = "connectomes/ws_small_world/"
-BASE_PATH = "connectomes/drosophila adult connectome/"
+# FLYNN (real Drosophila connectome) is the default. To train/evaluate SmallWorldNet
+# instead, comment out the FLYNN line below and uncomment the SmallWorldNet line.
+BASE_PATH = "connectomes/drosophila adult connectome/"  # FLYNN -- default
+# BASE_PATH = "connectomes/ws_small_world/"  # SmallWorldNet baseline
 # -----------------------------
 # Paths (hardcoded)
 # -----------------------------
 # EDGE_PATH = "connectomes/drosophila adult connectome/connections_princeton_random.csv"
-# EDGE_PATH = BASE_PATH + "connections_ws_small_world.csv"
-EDGE_PATH = BASE_PATH + "connections_princeton.csv"
+
+# EDGE_PATH's filename depends on which BASE_PATH is active above -- derived here
+# (instead of a second independent comment/uncomment toggle) so the two can't drift
+# out of sync with each other.
+_EDGE_FILE_BY_BASE_PATH = {
+    "connectomes/drosophila adult connectome/": "connections_princeton.csv",
+    "connectomes/ws_small_world/": "connections_ws_small_world.csv",
+}
+EDGE_PATH = BASE_PATH + _EDGE_FILE_BY_BASE_PATH[BASE_PATH]
 
 PHOTORECEPTOR_LEFT_CSV = BASE_PATH + "visual_column_L1_L2_L3_rear_view_left.csv"
 PHOTORECEPTOR_RIGHT_CSV = BASE_PATH + "visual_column_L1_L2_L3_rear_view_right.csv"
