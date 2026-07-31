@@ -23,23 +23,41 @@ plt.rcParams["font.size"] = 24
 # Each entry: (folder_path, display_label)
 # # The FIRST condition is the reference – distances are measured FROM it.
 # CONDITION_FOLDERS = [
-#     (r"D:\Benquan\OneDrive MSState\OneDrive - Mississippi State University\Projects\brain simulation\fly_gym\eval_data\connectome_full_vision_2", "Full vision"),
-#     (r"D:\Benquan\OneDrive MSState\OneDrive - Mississippi State University\Projects\brain simulation\fly_gym\eval_data\connectome_left_eye_2", "Left eye only"),
-#     (r"D:\Benquan\OneDrive MSState\OneDrive - Mississippi State University\Projects\brain simulation\fly_gym\eval_data\connectome_right_eye_2", "Right eye only"),
-#     (r"D:\Benquan\OneDrive MSState\OneDrive - Mississippi State University\Projects\brain simulation\fly_gym\eval_data\connectome_total_blind_2", "Total blind"),
+#     (r"path_to\eval_data\connectome_full_vision_2", "Full vision"),
+#     (r"path_to\eval_data\connectome_left_eye_2", "Left eye only"),
+#     (r"path_to\eval_data\connectome_right_eye_2", "Right eye only"),
+#     (r"path_to\eval_data\connectome_total_blind_2", "Total blind"),
 # ]
 
 CONDITION_FOLDERS = [
-    (r"D:\Benquan\OneDrive MSState\OneDrive - Mississippi State University\Projects\brain simulation\fly_gym\eval_data\small_world_full_vision_states", "Full vision"),
-    (r"D:\Benquan\OneDrive MSState\OneDrive - Mississippi State University\Projects\brain simulation\fly_gym\eval_data\small_world_left_eye_states", "Left eye only"),
-    (r"D:\Benquan\OneDrive MSState\OneDrive - Mississippi State University\Projects\brain simulation\fly_gym\eval_data\small_world_right_eye_states", "Right eye only"),
-    (r"D:\Benquan\OneDrive MSState\OneDrive - Mississippi State University\Projects\brain simulation\fly_gym\eval_data\small_world_blind_states", "Total blind"),
+    (r"path_to\eval_data\small_world_full_vision_states", "Full vision"),
+    (r"path_to\eval_data\small_world_left_eye_states", "Left eye only"),
+    (r"path_to\eval_data\small_world_right_eye_states", "Right eye only"),
+    (r"path_to\eval_data\small_world_blind_states", "Total blind"),
+    # (r"path_to\eval_data\small_world_textured_env", "Testing env"),
 ]
+
+# CONDITION_FOLDERS = [
+#     # (r"path_to\eval_data\connectome_full_vision_4", "Training env"),
+#     # (r"path_to\eval_data\connectome_textured_env", "Testing env"),
+#     (r"path_to\eval_data\small_world_full_vision_states", "Training env"),
+#     (r"path_to\eval_data\small_world_textured_env", "Testing env"),
+# ]
+
+# CONDITION_FOLDERS = [
+#     (r"path_to\eval_data\connectome_full_vision_4", "Full vision"),
+#     (r"path_to\eval_data\connectome_left_eye_4", "Left eye only"),
+#     (r"path_to\eval_data\connectome_right_eye_4", "Right eye only"),
+#     (r"path_to\eval_data\connectome_blind_4", "Total blind"),
+    
+#     (r"path_to\eval_data\connectome_textured_env", "Testing env"),
+# ]
+
 # Colors for each condition (skip index 0 since it's the reference)
 # COLORS = ["#2196F3", "#FF9800", "#F44336", "#4CAF50"]
-COLORS = ["#4CAF50", "#2196F3", "#FF9800", "#F44336"]
+COLORS = ["#4CAF50", "#2196F3", "#FF9800", "#F44336", "#C203FC"]
 
-N_PCS = 10  # number of principal components for distance calculation
+N_PCS = 2  # number of principal components for distance calculation
 
 
 def discover_episodes(condition_folders: list, max_episodes: int = None) -> list:
@@ -280,7 +298,7 @@ def plot_results(distances: np.ndarray,
 
 
 def plot_pca_kde(condition_folders: list, episodes: list,
-                 n_episodes: int = None, n_fit_episodes: int = 5) -> None:
+                 n_episodes: int = None, n_fit_episodes: int = 5, n_pcs: int = N_PCS) -> dict:
     """2D KDE contour plot of PC1 vs PC2 overlaying multiple episodes.
 
     To save memory on large datasets, PCA is fitted on a subset of 
@@ -293,9 +311,11 @@ def plot_pca_kde(condition_folders: list, episodes: list,
     episodes : list of int
     n_episodes : int or None, number of episodes to overlay (None = all)
     n_fit_episodes: int, number of episodes to use for PCA fitting
+    n_pcs: int, number of components to project and calculate KDE peak
     """
     import seaborn as sns
     from sklearn.decomposition import PCA
+    from scipy.optimize import minimize
     
     sel_episodes = episodes[:n_episodes] if n_episodes else episodes
     fit_episodes = sel_episodes[:n_fit_episodes]
@@ -311,8 +331,11 @@ def plot_pca_kde(condition_folders: list, episodes: list,
             fit_arrays.append(np.load(fpath))
 
     fit_states = np.concatenate(fit_arrays, axis=0)
-    pca = PCA(n_components=2)
+    pca = PCA(n_components=n_pcs)
     pca.fit(fit_states)
+    
+    total_var = np.sum(pca.explained_variance_ratio_)
+    print(f"[pca] Total explained variance by {n_pcs} PCs: {total_var * 100:.2f}%")
     
     # Clear large arrays from memory
     del fit_arrays
@@ -331,7 +354,10 @@ def plot_pca_kde(condition_folders: list, episodes: list,
 
     fig, ax = plt.subplots(figsize=(8, 7))
 
-    max_points_for_kde = 100000  # Cap to prevent sns.kdeplot from hanging
+    max_points_for_kde = 100000  # Cap to prevent KDE calculation from hanging
+    
+    # Dictionary to hold the calculated KDE values for each condition
+    kde_results = {}
 
     for cond_idx in range(n_conds):
         # Concatenate 2D projections for this condition
@@ -340,42 +366,90 @@ def plot_pca_kde(condition_folders: list, episodes: list,
         # # Downsample for faster KDE estimation if needed
         # if cond_proj.shape[0] > max_points_for_kde:
         #     print(f"[pca] Downsampling condition '{labels[cond_idx]}' from "
-        #           f"{cond_proj.shape[0]} to {max_points_for_kde} points for KDE plot...")
+        #           f"{cond_proj.shape[0]} to {max_points_for_kde} points for KDE computation...")
         #     rng = np.random.default_rng(42)  # Fixed seed for reproducibility
         #     idx = rng.choice(cond_proj.shape[0], size=max_points_for_kde, replace=False)
         #     cond_proj = cond_proj[idx]
+
+        # sns.kdeplot(
+        #     x=cond_proj[:, 0], y=cond_proj[:, 1],
+        #     ax=ax,
+        #     color=COLORS[cond_idx],
+        #     label=labels[cond_idx],
+        #     levels=6,
+        #     linewidths=2,
+        #     alpha=0.8
+        # )
         
-        sns.kdeplot(
-            x=cond_proj[:, 0], y=cond_proj[:, 1],
-            ax=ax,
-            color=COLORS[cond_idx],
-            label=labels[cond_idx],
-            levels=6,
-            linewidths=2,
-            alpha=0.8
-        )
+        # Extract x and y coordinates
+        x_val = cond_proj[:, 0]
+        y_val = cond_proj[:, 1]
+        
+        # 1. Fit 2D KDE manually using scipy for contour plot
+        kde = stats.gaussian_kde(np.vstack([x_val, y_val]))
+        
+        # 2. Evaluate on a 100x100 grid spanning the data
+        xmin, xmax = x_val.min(), x_val.max()
+        ymin, ymax = y_val.min(), y_val.max()
+        X, Y = np.mgrid[xmin:xmax:100j, ymin:ymax:100j]
+        positions = np.vstack([X.ravel(), Y.ravel()])
+        
+        # Compute the density values and reshape back to grid dimensions
+        Z = np.reshape(kde(positions).T, X.shape)
+        
+        # 3. Fit N-dimensional KDE to find the true peak in N-D space
+        kde_nd = stats.gaussian_kde(cond_proj.T)
+        
+        # Evaluate on a subset of points to find a good initialization for the peak
+        n_eval = min(10000, cond_proj.shape[0])
+        rng = np.random.default_rng(42)
+        idx = rng.choice(cond_proj.shape[0], size=n_eval, replace=False)
+        eval_pts = cond_proj[idx]
+        
+        densities = kde_nd(eval_pts.T)
+        peak_nd_init = eval_pts[np.argmax(densities)]
+        
+        # Refine the peak using optimization
+        res = minimize(lambda x: -kde_nd(x)[0], peak_nd_init, method='L-BFGS-B')
+        peak_nd = res.x
+
+        # Store the actual values in the dictionary
+        kde_results[labels[cond_idx]] = {
+            'X': X,
+            'Y': Y,
+            'Z': Z,  # These are the actual 2D KDE density values
+            'peak_nd': peak_nd # N-dimensional peak 
+        }
+        
+        # 3. Plot the contours using the evaluated values
+        ax.contour(X, Y, Z, levels=6, colors=[COLORS[cond_idx]], linewidths=2, alpha=0.8)
+        
+        # Add a dummy line to show up in the legend
+        ax.plot([], [], color=COLORS[cond_idx], label=labels[cond_idx], linewidth=2, alpha=0.8)
 
     ax.set_xlabel(f"PC1 ({pca.explained_variance_ratio_[0]*100:.1f}%)")
     ax.set_ylabel(f"PC2 ({pca.explained_variance_ratio_[1]*100:.1f}%)")
     ax.set_title(f"PCA Density (KDE) — {len(sel_episodes)} episodes")
     # ax.legend(fontsize=14)
     ax.grid(True, alpha=0.3)
-    fig.tight_layout()
+    # fig.tight_layout()
     plt.show()
+    
+    return kde_results
 
 
 def analysis_pca_cka(condition_folders: list):
     """Main entry point."""
     # Validate configuration
-    assert len(condition_folders) >= 2, "Need at least 2 conditions"
+    # assert len(condition_folders) >= 2, "Need at least 2 conditions"
     for folder, label in condition_folders:
         assert os.path.isdir(folder), f"Folder not found: {folder}"
 
     # Discover common episodes
     episodes = discover_episodes(condition_folders, max_episodes=500)
-    assert len(episodes) >= 2, (
-        f"Need at least 2 common episodes for paired t-test, found {len(episodes)}"
-    )
+    # assert len(episodes) >= 2, (
+    #     f"Need at least 2 common episodes for paired t-test, found {len(episodes)}"
+    # )
 
     # # Compute PCA distances
     # ref_label = condition_folders[0][1]
@@ -407,8 +481,49 @@ def analysis_pca_cka(condition_folders: list):
     # plot_results(distances, non_ref_labels, ref_label, ttest_results)
 
     # 2D PCA KDE contour plot
-    plot_pca_kde(condition_folders, episodes, n_fit_episodes=20)
-
+    kde_results = plot_pca_kde(condition_folders, episodes, n_fit_episodes=20)
+    
+    print("\n[pca] Analyzing KDE peaks...")
+    peaks = {}
+    for label, res in kde_results.items():
+        peak_nd = res['peak_nd']
+        peaks[label] = peak_nd
+        print(f"  Peak for '{label}': {np.round(peak_nd[:2], 3)}... (showing first 2 of {len(peak_nd)} PCs)")
+    
+    required_keys = ["Full vision", "Left eye only", "Right eye only", "Total blind"]
+    if all(k in peaks for k in required_keys):
+        pa = peaks["Full vision"]
+        pb = peaks["Left eye only"]
+        pc = peaks["Right eye only"]
+        pd = peaks["Total blind"]
+        
+        # Vectors from 'Total blind' (pd) to other peaks
+        v1 = pc - pd  # pd -> pc (Right eye)
+        v2 = pb - pd  # pd -> pb (Left eye)
+        v3 = pa - pd  # pd -> pa (Full vision)
+        
+        v1_plus_v2 = v1 + v2
+        
+        mag_v1_plus_v2 = np.linalg.norm(v1_plus_v2)
+        mag_v3 = np.linalg.norm(v3)
+        
+        if mag_v1_plus_v2 > 0 and mag_v3 > 0:
+            cosine_sim = np.dot(v1_plus_v2, v3) / (mag_v1_plus_v2 * mag_v3)
+        else:
+            cosine_sim = float('nan')
+            
+        print("\n[pca] Vector Analysis (Origin: Total blind):")
+        print(f"  v1 (pd -> Right eye)  : [{v1[0]:.4f}, {v1[1]:.4f}]")
+        print(f"  v2 (pd -> Left eye)   : [{v2[0]:.4f}, {v2[1]:.4f}]")
+        print(f"  v3 (pd -> Full vision): [{v3[0]:.4f}, {v3[1]:.4f}]")
+        print(f"  v1 + v2               : [{v1_plus_v2[0]:.4f}, {v1_plus_v2[1]:.4f}]")
+        
+        print("\n[pca] Linearity Metrics:")
+        print(f"  Cosine similarity between (v1+v2) and v3: {cosine_sim:.8f}")
+        print(f"  Magnitude of (v1+v2): {mag_v1_plus_v2:.4f}")
+        print(f"  Magnitude of v3: {mag_v3:.4f}")
+    else:
+        print("\n[pca] Warning: Not all 4 required conditions found for vector analysis.")
 
 if __name__ == "__main__":
     analysis_pca_cka(CONDITION_FOLDERS)

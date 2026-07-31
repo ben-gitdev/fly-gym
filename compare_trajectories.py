@@ -15,19 +15,19 @@ import csv
 # ── Configuration ────────────────────────────────────────────────────────────
 
 BASE_DIR = (
-    r"D:\Benquan\OneDrive MSState\OneDrive - Mississippi State University\Publications\IROS2026\materials\trajectories\small_world"
+    r"path_to\trajectories"
 )
 
 # Subfolder name → legend label (order determines draw & legend order)
 FOLDER_LABELS = {
     "full_vision":        "Full Vision",
-    "right_eye_only": "Right Eye Only",
     "left_eye_only":    "Left Eye Only",
-    "blind":      "Blind",
+    "right_eye_only": "Right Eye Only",
+    "blind":      "Total Blindness",
 }
 
 # Distinct colors for each model
-COLORS = ["#2196F3", "#FF9800", "#F44336"]
+COLORS = ["#4CAF50", "#2196F3", "#FF9800", "#F44336"]
 
 # ── Helpers ──────────────────────────────────────────────────────────────────
 

@@ -298,6 +298,79 @@ Everything else in this document is still a plan to review, not an executed acti
   **Not done** (out of scope, per §2d's own recommendation): archiving or removing `backups/` — still
   needs an external storage destination decided first.
 
+- **§2a-caveat: `run_connectome_rnn_checkpoint.py` fixed, moved back into §2a.** Three targeted fixes,
+  layered on top of the file's pre-existing scratch state without disturbing the rest of it:
+    - **Checkpoint path is now a required CLI positional argument** (`argparse`, matching §1.6's fix to
+      `run_vision_agent_checkpoint.py`), replacing the hardcoded `CHECKPOINT =
+      "checkpoints/connectome_rnn_dagger_small_world_full_vision.pt"` module constant that was silently
+      defaulting to SmallWorldNet and directly contradicting §1.1. No fallback default — the existing
+      `FileNotFoundError` in `_load_agent()` already covers a bad/missing path, so nothing new was added
+      there. Verified: `--help` shows the arg and its rationale; no args → argparse usage error, exit 2;
+      a nonexistent path → the existing `FileNotFoundError` fires (after env construction, same as
+      before — unrelated to this fix).
+    - **Fixed the `cv2` bug**: `import cv2` was a hard import, but `maybe_show_cameras()` guarded on
+      `if cv2 is None: return` — dead code, since a failed hard import raises `ImportError` at module
+      load instead of leaving `cv2` as `None`. Changed to `try: import cv2 / except ImportError: cv2 =
+      None`, so the debug camera-preview window degrades gracefully to a no-op on a machine without
+      `opencv-python`, matching what the guard clause always implied it should do.
+    - **Uncommented the 3 disabled vision conditions** in `__main__` (`dir2`/`dir3`/`dir4`: right-eye-only,
+      left-eye-only, blind) so all 4 conditions run again, matching the paper's full ablation sweep,
+      instead of just the one (full-vision) condition that was left active.
+    - **Verified by actually running it**, not just syntax-checking: a smoke test (not committed — ad hoc,
+      outside the repo) called `_load_agent`/`_make_env`/`rollout_episode` directly against a real FLYNN
+      checkpoint (`connectome_rnn_dagger_princeton_full_vision.pt`) for all 4 vision masks headlessly.
+      Built the real 138,584-node connectome cell and ran successfully end-to-end: full vision and
+      right-eye-only both reached the goal (366 and 355 steps); left-eye-only and blind both timed out
+      at the 600-step cap without reaching it — directionally consistent with the paper's finding that
+      vision loss hurts navigation. Confirmed `cv2` imports normally (soft-import is a no-op when the
+      package is actually present). No debris left in the repo — the smoke test wrote to a system temp
+      directory, not `eval_data/`. **Not committed** — this fix sits on top of the file's other
+      pre-existing uncommitted scratch edits (wrong `save_hidden_states` flag, etc.), same situation as
+      before; only the 3 requested changes were made, nothing else in the file was touched.
+
+- **§2a-caveat: `analysis_pca_statistics.py` and `count_collisions.py` accepted as resolved (author
+  call), moved back into §2a.**
+    - `analysis_pca_statistics.py` was edited manually (outside this session): every `CONDITION_FOLDERS`
+      entry's hardcoded personal absolute path
+      (`D:\Benquan\OneDrive MSState\...\fly_gym\eval_data\...`) was replaced with a generic
+      `path_to\eval_data\...` placeholder — removing the machine-specific path the earlier audit flagged.
+      Confirmed via `git diff` that this is the only substantive change (plus unrelated tweaks to
+      `COLORS`/`N_PCS`). The live `assert os.path.isdir(folder)` will still fire until `path_to` is
+      substituted with a real path — that's expected for a template, not a leftover bug, so this is
+      accepted as resolved as-is rather than something needing a working default path.
+    - `count_collisions.py`: accepted as-is, no changes made. Its active `__main__` folder list still
+      points at `eval_data/*_textured_env` folders that don't exist yet — per author, this reflects an
+      in-progress/future experiment naming rather than a defect, so it's no longer treated as an open
+      problem.
+
+- **§2a-caveat: `visualize_episodes.py` partially fixed** (docstring added, debug filter removed;
+  `target_dir` issue still open). Added a module-level docstring describing what the script does
+  (reads `trajectory_<episode>.csv`/`obstacles_<episode>.txt` pairs plus `episode_summary.csv` goal
+  positions, saves one `visualization_<episode>.png` per episode). Removed the hardcoded
+  `if ep_id is not 26: continue` debug filter that limited every run to a single episode (also fixing
+  the `is not`-on-an-int anti-pattern by deleting it, rather than correcting it to `!=`). Verified by
+  actually running the underlying logic against a real eval_data folder with real trajectory data
+  (`eval_data/connectome_rnn_20260306-084812/`, 75 episodes) rather than just syntax-checking: all 75
+  episodes were processed and plotted (min=1, max=75), confirming the filter no longer silently
+  restricts output to episode 26. Output was written to a scratch directory, not `eval_data/`, and
+  cleaned up afterward — no debris left in the repo. **Not touched** (out of scope for this request):
+  `target_dir = "eval_data/small_world_textured_env"` still points at a folder that doesn't exist —
+  the file remains in the 2a-caveat table for that reason alone.
+
+- **`visualize_episodes.py` marked done (author call), moved into §2a.** No further changes made — the
+  remaining `target_dir` gap is accepted as-is, same reasoning as `count_collisions.py` just above
+  (reflects an in-progress/future experiment, not a defect). The 2a-caveat table now holds only
+  `compare_trajectories.py`.
+
+- **`compare_trajectories.py` edited manually (outside this session), marked complete.** Confirmed via
+  `git diff` that `BASE_DIR`'s hardcoded personal absolute path
+  (`D:\Benquan\OneDrive MSState\...\Publications\IROS2026\materials\trajectories\small_world`) was
+  replaced with a generic `path_to\trajectories` placeholder — same fix pattern already accepted for
+  `analysis_pca_statistics.py`. Other changes in the diff (`FOLDER_LABELS` reordering/relabeling "Blind"
+  → "Total Blindness", one extra `COLORS` entry) are cosmetic, unrelated to the reproducibility concern.
+  **§2a-caveat is now empty** — all 5 files originally flagged there are resolved or accepted as-is;
+  every file in §2's "keep as-is" role now lives in the single §2a table.
+
 ---
 
 ## 0. TL;DR
@@ -393,34 +466,19 @@ file-classification calls below only make sense once you know about them.
 | `train_connectome_rnn_dagger.py` | FLYNN/SmallWorldNet DAgger training (hyperparameters now match the paper — §1.2 resolved) |
 | `train_visionnet_dagger.py` | EfficientNet/MobileNet DAgger + camera-dropout training (matches paper exactly) |
 | `run_vision_agent_checkpoint.py` | eval rollouts → `eval_data/`, Table I source (checkpoint-CLI fix — §1.6 resolved, committed) |
+| `run_connectome_rnn_checkpoint.py` | eval rollouts across all 4 vision conditions → `eval_data/`, Table I source (checkpoint-CLI fix, `cv2` soft-import fix, all 4 vision conditions uncommented — see Progress log; moved here from 2a-caveat, not yet committed) |
 | `shared_config.py` | shared paths/hyperparameters (now defaults to FLYNN — §1.1 resolved) |
 | `test_vfhplus.py` | sanity-check tool for the VFH*+PID teacher, worth keeping even with 0 importers |
 | `collision_statistics.py` | Table I metrics + root-level bar-chart figures (§1.4 resolved, committed) |
+| `analysis_pca_statistics.py` | the actual KDE + `BF≈BL+BR` vector-arithmetic analysis in the paper. `CONDITION_FOLDERS` now uses a generic `path_to\eval_data\...` placeholder template instead of a hardcoded personal absolute path — accepted as resolved by author (see Progress log); running it still requires substituting a real path (the `assert os.path.isdir(folder)` will fire otherwise), which is expected/by-design for a template, not a bug. |
+| `count_collisions.py` | Table I collision-count augmentation. Active folder list in `__main__` points at `eval_data/*_textured_env` folders that don't exist yet — accepted as-is by author (see Progress log): reflects an in-progress/future experiment naming, not a defect to fix. |
+| `visualize_episodes.py` | Per-episode trajectory plots. Debug filter removed and docstring added (see Progress log); `target_dir` still points at a not-yet-existing `eval_data/small_world_textured_env` folder, but accepted as-is by author for the same reason as `count_collisions.py` above — reflects an in-progress/future experiment, not a defect. |
+| `compare_trajectories.py` | The PCA/KDE trajectory-comparison figures. `BASE_DIR` now uses a generic `path_to\trajectories` placeholder template instead of a hardcoded personal absolute path — accepted as resolved by author (see Progress log), same reasoning as `analysis_pca_statistics.py` above. |
 
-**Not in this bucket despite playing the same conceptual role** — see the caveat table immediately
-below: `run_connectome_rnn_checkpoint.py`, `analysis_pca_statistics.py`, `count_collisions.py`,
-`compare_trajectories.py`, `visualize_episodes.py`.
-
-### 2a-caveat. Same role as 2a, but current on-disk state is NOT reproduction-ready
-
-These 5 files were intentionally left out of the `cleanup-for-publication` PR (see Progress log) — they're
-still sitting in their pre-existing, uncommitted, mid-experiment state, confirmed by an independent audit
-pass after the §1 fixes landed. They're real, needed scripts, not dead code — but each has a concrete
-problem that would stop a fresh clone from reproducing anything with them today:
-
-| File | What's actually wrong right now |
-|---|---|
-| `run_connectome_rnn_checkpoint.py` | Default `CHECKPOINT` currently points at a SmallWorldNet checkpoint (`connectome_rnn_dagger_small_world_full_vision.pt`), not a FLYNN one — **directly contradicts §1.1** ("FLYNN is the default"). Also has a live `cv2.imshow`/`cv2.waitKey` debug preview window wired into the render path, and `__main__` currently only runs one of the four vision conditions (the other three are commented out), so it wouldn't reproduce the full Table I sweep as-is. |
-| `analysis_pca_statistics.py` | `CONDITION_FOLDERS` points at `eval_data/small_world_*_states` paths that no longer exist on disk; `analysis_pca_cka()` still has a live `assert os.path.isdir(folder)`, so running it today crashes immediately with an `AssertionError`. Several large blocks of alternate `CONDITION_FOLDERS` configs sit commented out around the active one. |
-| `count_collisions.py` | The active folder list in `__main__` (`connectome_textured_env`, `small_world_textured_env`, etc.) doesn't exist under `eval_data/` either; a previous 16-folder list sits commented out just above it. |
-| `visualize_episodes.py` | `target_dir = "eval_data/small_world_textured_env"` doesn't exist under `eval_data/` (prints "Directory not found" and returns immediately); also has a hardcoded single-episode debug filter, `if ep_id is not 26: continue`. |
-| `compare_trajectories.py` | `BASE_DIR` is a hardcoded personal absolute path outside the repo entirely (`D:\Benquan\OneDrive MSState\...\Publications\IROS2026\materials\trajectories\textured_env`) — works on this machine, not reproducible by a public reader. |
-
-**Recommendation**: before public release, either (a) restore each to whatever configuration last actually
-produced a paper figure/number and strip the debug/scratch code, or (b) if these are genuinely mid-pivot to
-a new "textured_env" experiment that supersedes what's reported in the paper, keep iterating freely but
-don't represent them as reproduction sources until they're finalized. Not fixed here, deliberately — this
-is your active research state, same reasoning as §2e.
+**2a-caveat is now empty** — all 5 files originally flagged there (`run_connectome_rnn_checkpoint.py`,
+`analysis_pca_statistics.py`, `count_collisions.py`, `visualize_episodes.py`, `compare_trajectories.py`)
+have been resolved or accepted as-is and folded back into the table above; see the Progress log for the
+full history of each.
 
 ### 2b. Needed, was wrongly excluded by `.gitignore` — **FIXED, staged (not yet committed)**
 

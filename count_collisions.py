@@ -56,6 +56,7 @@ def count_one_folder(eval_dir = EVAL_DIR):
     first_collision_steps = []
     spl_list = []
     avg_speed_list = []
+    obstacle_in_line_list = []
     
     # Initialize planner once
     planner = AStarGridPlanner(GridSpec(arena_half_extent=7.0, cell_size=0.1, obstacle_inflate=0.1))
@@ -102,6 +103,24 @@ def count_one_folder(eval_dir = EVAL_DIR):
                 if len(obstacles_xy) == 0:
                     obstacles_xy = np.zeros((0, 2), dtype=np.float32)
                 
+                # Check if any obstacle is directly in line between start and goal
+                if len(obstacles_xy) > 0:
+                    v = goal_xy - start_xy
+                    w = obstacles_xy - start_xy
+                    c1 = np.sum(w * v, axis=1)
+                    c2 = np.sum(v * v)
+                    if c2 > 0:
+                        b = np.clip(c1 / c2, 0.0, 1.0)
+                        proj = start_xy + b[:, np.newaxis] * v
+                        dists = np.linalg.norm(obstacles_xy - proj, axis=1)
+                        obstacle_in_line = bool(np.min(dists) < 0.6)
+                    else:
+                        dists = np.linalg.norm(obstacles_xy - start_xy, axis=1)
+                        obstacle_in_line = bool(np.min(dists) < 0.6)
+                else:
+                    obstacle_in_line = False
+                obstacle_in_line_list.append(obstacle_in_line)
+                
                 # Shortest path length using A*
                 path = planner.plan(
                     start_xy=start_xy,
@@ -129,12 +148,14 @@ def count_one_folder(eval_dir = EVAL_DIR):
             else:
                 spl_list.append(0.0)
                 avg_speed_list.append(0.0)
+                obstacle_in_line_list.append(False)
         else:
             print(f"Warning: {traj_path} not found, setting collisions to 0, SPL to 0")
             collision_counts.append(0)
             first_collision_steps.append(-1)
             spl_list.append(0.0)
             avg_speed_list.append(0.0)
+            obstacle_in_line_list.append(False)
     
     # Convert goal_reached from true/false to 1/0
     summary_df["goal_reached"] = summary_df["goal_reached"].astype(int)
@@ -144,20 +165,22 @@ def count_one_folder(eval_dir = EVAL_DIR):
     summary_df["first_collision_step"] = first_collision_steps
     summary_df["SPL"] = spl_list
     summary_df["average_speed"] = avg_speed_list
+    summary_df["obstacle_in_line"] = obstacle_in_line_list
     summary_df.to_csv(summary_path, index=False)
-    print(f"Updated {summary_path} with collision counts, SPL, and avg speed for {len(summary_df)} episodes.")
+    print(f"Updated {summary_path} with collision counts, SPL, avg speed, and obstacle_in_line for {len(summary_df)} episodes.")
 
 
 if __name__ == "__main__":
     base_dir = "eval_data"
     
-    folders =   [
-        "connectome_full_vision", "connectome_left_eye", "connectome_right_eye", "connectome_blind",
-        "vision_efficientnet_robust_full_vision", "vision_efficientnet_robust_left_eye", "vision_efficientnet_robust_right_eye", "vision_efficientnet_robust_blind",
-        "vision_mobilenet_robust_full_vision", "vision_mobilenet_robust_left_eye", "vision_mobilenet_robust_right_eye", "vision_mobilenet_robust_blind",
-        "small_world_full_vision", "small_world_left_eye", "small_world_right_eye", "small_world_total_blind",
-    ]
-    
+    # folders =   [
+    #     "connectome_full_vision_4", "connectome_left_eye_4", "connectome_right_eye_4", "connectome_blind_4",
+    #     "vision_efficientnet_robust_full_vision", "vision_efficientnet_robust_left_eye", "vision_efficientnet_robust_right_eye", "vision_efficientnet_robust_blind",
+    #     "vision_mobilenet_robust_full_vision", "vision_mobilenet_robust_left_eye", "vision_mobilenet_robust_right_eye", "vision_mobilenet_robust_blind",
+    #     "small_world_full_vision", "small_world_left_eye", "small_world_right_eye", "small_world_total_blind",
+    # ]
+    # folders = ["connectome_textured_env", "small_world_textured_env", "vision_efficientnet_robust_textured_env", "vision_mobilenet_robust_textured_env"]
+    folders = [] # list of eval result folders
     for folder in folders:
         count_one_folder(os.path.join(base_dir, folder))
     
