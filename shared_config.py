@@ -29,7 +29,6 @@ BASE_PATH = "connectomes/drosophila adult connectome/"  # FLYNN -- default
 # -----------------------------
 # Paths (hardcoded)
 # -----------------------------
-# EDGE_PATH = "connectomes/drosophila adult connectome/connections_princeton_random.csv"
 
 # EDGE_PATH's filename depends on which BASE_PATH is active above -- derived here
 # (instead of a second independent comment/uncomment toggle) so the two can't drift

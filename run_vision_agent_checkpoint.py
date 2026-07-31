@@ -1,6 +1,5 @@
 """
-Script to run trained vision-based agents (EfficientNet, MobileNet, Dual-Backbone)
-from checkpoints.
+Script to run trained vision-based agents (EfficientNet, MobileNet) from checkpoints.
 Uses the same preprocessing pipeline as train_visionnet_dagger.py to ensure
 observation processing matches training exactly.
 """
@@ -20,7 +19,6 @@ sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 from environment.mujoco_two_cam_env_random_obstacles import MuJoCoTwoCamEnv
 from agents.efficientnet_agent import EfficientNetAgent
 from agents.mobilenet_agent import MobileNetAgent
-from agents.dual_backbone_agent import DualBackboneAgent
 from core.utils import get_device
 
 # Import config constants
@@ -92,23 +90,6 @@ def preprocess_obs_cpu(obs, dtype=np.float32, vision=[True, True]):
         "collision": col,
     }
 
-# ---- Preprocessing for dual-backbone agents ----
-def preprocess_obs_cpu_dual(obs, dtype=np.float32, vision=[True, True]):
-    left_small = cv2.resize(obs["cam_left"], (30, 30), interpolation=cv2.INTER_AREA)
-    right_small = cv2.resize(obs["cam_right"], (30, 30), interpolation=cv2.INTER_AREA)
-    left_gray = cv2.cvtColor(left_small, cv2.COLOR_RGB2GRAY)
-    right_gray = cv2.cvtColor(right_small, cv2.COLOR_RGB2GRAY)
-    img_left = left_gray[np.newaxis, :, :] * 0.0 if not vision[0] else left_gray[np.newaxis, :, :]
-    img_right = right_gray[np.newaxis, :, :] * 0.0 if not vision[1] else right_gray[np.newaxis, :, :]
-    wind_dir, col = _preprocess_sensors(obs, dtype)
-    return {
-        "img_left": img_left.astype(np.uint8),
-        "img_right": img_right.astype(np.uint8),
-        "wind_direction": wind_dir,
-        "collision": col,
-    }
-
-
 def maybe_show_cameras(obs):
     if cv2 is None: return
     try:
@@ -126,9 +107,6 @@ def run_episode(env, agent, device, dtype, render=False, render_skip=1,
     obs, info = env.reset(seed=seed)
     if hasattr(agent, "reset_vision_state"):
         agent.reset_vision_state()
-    
-    is_dual = isinstance(agent, DualBackboneAgent)
-    preprocess_fn = preprocess_obs_cpu_dual if is_dual else preprocess_obs_cpu
 
     # --- Record Goal Location ---
     goal_xy = env._goal_xy.copy()
@@ -174,11 +152,7 @@ def run_episode(env, agent, device, dtype, render=False, render_skip=1,
     
     # Pre-allocate pinned memory buffers for lower-latency GPU transfers
     if use_cuda:
-        if is_dual:
-            pin_img_l = torch.empty(1, 1, 30, 30, dtype=torch.uint8).pin_memory()
-            pin_img_r = torch.empty(1, 1, 30, 30, dtype=torch.uint8).pin_memory()
-        else:
-            pin_img = torch.empty(1, 1, 30, 60, dtype=torch.uint8).pin_memory()
+        pin_img = torch.empty(1, 1, 30, 60, dtype=torch.uint8).pin_memory()
         pin_wind = torch.empty(1, 2, dtype=torch.float32).pin_memory()
         pin_col = torch.empty(1, 1, dtype=torch.float32).pin_memory()
     
@@ -205,44 +179,24 @@ def run_episode(env, agent, device, dtype, render=False, render_skip=1,
             maybe_show_cameras(obs)
         
         # CPU preprocessing (matches training pipeline)
-        xs_cpu = preprocess_fn(obs, dtype=np_dtype, vision=vision)
-        
+        xs_cpu = preprocess_obs_cpu(obs, dtype=np_dtype, vision=vision)
+
         # Transfer to GPU
         if use_cuda:
-            if is_dual:
-                pin_img_l[0] = torch.from_numpy(xs_cpu["img_left"])
-                pin_img_r[0] = torch.from_numpy(xs_cpu["img_right"])
-            else:
-                pin_img[0] = torch.from_numpy(xs_cpu["img"])
+            pin_img[0] = torch.from_numpy(xs_cpu["img"])
             pin_wind[0] = torch.from_numpy(xs_cpu["wind_direction"])
             pin_col[0] = torch.from_numpy(xs_cpu["collision"])
-            if is_dual:
-                xs_gpu = {
-                    "img_left": pin_img_l.to(device, non_blocking=True),
-                    "img_right": pin_img_r.to(device, non_blocking=True),
-                    "wind_direction": pin_wind.to(device, non_blocking=True),
-                    "collision": pin_col.to(device, non_blocking=True),
-                }
-            else:
-                xs_gpu = {
-                    "img": pin_img.to(device, non_blocking=True),
-                    "wind_direction": pin_wind.to(device, non_blocking=True),
-                    "collision": pin_col.to(device, non_blocking=True),
-                }
+            xs_gpu = {
+                "img": pin_img.to(device, non_blocking=True),
+                "wind_direction": pin_wind.to(device, non_blocking=True),
+                "collision": pin_col.to(device, non_blocking=True),
+            }
         else:
-            if is_dual:
-                xs_gpu = {
-                    "img_left": torch.from_numpy(xs_cpu["img_left"]).unsqueeze(0).to(device),
-                    "img_right": torch.from_numpy(xs_cpu["img_right"]).unsqueeze(0).to(device),
-                    "wind_direction": torch.from_numpy(xs_cpu["wind_direction"]).unsqueeze(0).to(device, dtype=dtype),
-                    "collision": torch.from_numpy(xs_cpu["collision"]).unsqueeze(0).to(device, dtype=dtype),
-                }
-            else:
-                xs_gpu = {
-                    "img": torch.from_numpy(xs_cpu["img"]).unsqueeze(0).to(device),
-                    "wind_direction": torch.from_numpy(xs_cpu["wind_direction"]).unsqueeze(0).to(device, dtype=dtype),
-                    "collision": torch.from_numpy(xs_cpu["collision"]).unsqueeze(0).to(device, dtype=dtype),
-                }
+            xs_gpu = {
+                "img": torch.from_numpy(xs_cpu["img"]).unsqueeze(0).to(device),
+                "wind_direction": torch.from_numpy(xs_cpu["wind_direction"]).unsqueeze(0).to(device, dtype=dtype),
+                "collision": torch.from_numpy(xs_cpu["collision"]).unsqueeze(0).to(device, dtype=dtype),
+            }
         
         # Inference step
         with torch.no_grad():
@@ -294,11 +248,7 @@ def run_episode(env, agent, device, dtype, render=False, render_skip=1,
 def _detect_model_type(filename: str) -> str:
     """Infer model_type from checkpoint filename."""
     name = filename.lower()
-    if "dual_mobilenet" in name:
-        return "dual_mobilenet"
-    elif "dual_efficientnet" in name:
-        return "dual_efficientnet"
-    elif "mobilenet" in name:
+    if "mobilenet" in name:
         return "mobilenet"
     else:
         return "efficientnet"
@@ -310,10 +260,6 @@ def _build_agent(model_type: str, device, dtype):
         agent = EfficientNetAgent(**common)
     elif model_type == "mobilenet":
         agent = MobileNetAgent(**common)
-    elif model_type == "dual_efficientnet":
-        agent = DualBackboneAgent(backbone_type="efficientnet", **common)
-    elif model_type == "dual_mobilenet":
-        agent = DualBackboneAgent(backbone_type="mobilenet", **common)
     else:
         raise ValueError(f"Unknown model type: {model_type}")
     return agent.to(device=device, dtype=dtype)
@@ -321,7 +267,7 @@ def _build_agent(model_type: str, device, dtype):
 def parse_args():
     parser = argparse.ArgumentParser(
         description="Run evaluation rollouts for a trained vision-based agent "
-                     "(EfficientNet/MobileNet/Dual-Backbone) checkpoint."
+                     "(EfficientNet/MobileNet) checkpoint."
     )
     parser.add_argument(
         "checkpoint",
@@ -332,7 +278,7 @@ def parse_args():
     )
     parser.add_argument(
         "--model-type",
-        choices=["efficientnet", "mobilenet", "dual_efficientnet", "dual_mobilenet"],
+        choices=["efficientnet", "mobilenet"],
         default=None,
         help="Model architecture. Default: auto-detected from the checkpoint filename "
              "(see _detect_model_type).",

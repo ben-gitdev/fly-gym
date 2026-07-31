@@ -1,0 +1,30 @@
+# Core numerics / ML
+torch>=2.9.0
+torchvision>=0.24.0
+numpy>=2.2.5
+scipy>=1.15.2
+pandas>=2.2.3
+scikit-learn>=1.8.0
+
+# Simulation
+mujoco>=3.3.6
+gymnasium>=1.2.1
+glfw>=2.10.0
+
+# Computer vision
+opencv-python>=4.12.0.88
+
+# Plotting
+matplotlib>=3.10.1
+seaborn>=0.13.2
+
+# Connectome / graph analysis
+networkx>=3.4.2
+python-louvain>=0.16
+
+# Notes:
+# - torch/torchvision above were tested with a CUDA 12.8 build (+cu128); install the
+#   variant matching your own CUDA toolkit via https://pytorch.org/get-started/locally/
+#   rather than relying on the plain PyPI wheel if you need GPU support.
+# - python-louvain is imported as `import community` (see
+#   connectomes/ws_small_world/generate_ws_network_new.py).

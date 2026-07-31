@@ -34,6 +34,7 @@ performance_results/
 !environment/textures/*.png
 !bar_*.png
 !spl_*.png
+!direction_tuning_plot.png
 
 # Connectome data: ignore big raw edge lists, keep small metadata + scripts.
 # This block must come AFTER the generic *.csv rule above -- gitignore resolves

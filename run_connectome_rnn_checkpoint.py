@@ -58,7 +58,6 @@ TIME_PENALTY = 0.01
 PROG_SCALE = 10.0
 
 
-# EDGE_PATH = "connectomes/drosophila adult connectome/connections_princeton_random.csv"
 # CHECKPOINT = "checkpoints/connectome_rnn_dagger_princeton_random_full_vision.pt"
 # EDGE_PATH = "connectomes/drosophila adult connectome/connections_princeton.csv"
 # CHECKPOINT = "checkpoints/connectome_rnn_dagger_princeton_3.pt"
