@@ -1,14 +1,38 @@
-# FLYNN
+# fly-gym: FLYNN — Robust Neural Network for Robot Navigation using Fly Brain Topology
 
 Code accompanying **"FLYNN: Robust Neural Network for Robot Navigation using Fly Brain Topology"**
-(see [Citation](#citation)).
+([arXiv:2607.00025](https://arxiv.org/abs/2607.00025); see [Citation](#citation)).
 
 FLYNN is a recurrent neural network whose connectivity is derived directly from the FlyWire FAFB v783
 *Drosophila* connectome (139,255 neurons, 5,342,445 synaptic connections). It's trained with DAgger
 imitation learning to drive a two-wheeled, two-camera robot to a goal around randomly placed obstacles
-in MuJoCo, and is compared against a synthetic Watts-Strogatz control network (SmallWorldNet) matched
-on connectome degree/path-length statistics, plus two conventional CNN baselines (EfficientNet-B0,
-MobileNetV3-Large).
+in a MuJoCo arena, and is benchmarked against a synthetic Watts-Strogatz control network
+("SmallWorldNet", matched on the connectome's degree/path-length statistics) and two conventional CNN
+baselines (EfficientNet-B0, MobileNetV3-Large) to ask how much of its navigation ability is
+attributable to the real fly wiring diagram, as opposed to network size, topology, or a conventional
+vision pipeline.
+
+## Overview
+
+- **Body / world:** a two-wheeled differential-drive robot with two forward-facing cameras, simulated
+  in [MuJoCo](https://mujoco.org/), navigating toward a goal in an arena scattered with cylindrical
+  obstacles. Checkerboard (training/in-distribution) and photo-realistic (out-of-distribution eval)
+  scene variants are selected via `MuJoCoTwoCamEnv(texture_mode=...)`.
+- **Brain:** every unit in the RNN corresponds to one neuron in the fly connectome, and every recurrent
+  weight corresponds to a synapse-count-weighted connection from the connectome edge list. Camera
+  pixels are sampled at the real photoreceptor-column positions and passed through a virtual-retina
+  model (log transform + high-pass L1/L2 / low-pass L3 filtering) before entering the RNN,
+  approximating the fly's early visual processing (photoreceptors -> lamina L1-L3); a fixed set of
+  descending neurons is read out through a small MLP into `[velocity, heading]`. The connectome weight
+  matrix is rescaled to a target spectral radius at load time for stable recurrent dynamics, and a
+  custom `MemoryEfficientSparseMM` autograd function (CSR forward pass, cached-COO O(NNZ) backward
+  pass) makes training a ~140k-neuron recurrent cell tractable on a single GPU.
+- **Training:** DAgger imitation learning against an analytic **VFH\*** (Vector Field Histogram + A*)
+  planner + PID teacher.
+- **Comparisons:** the same task/training pipeline trains the Watts-Strogatz "SmallWorldNet" control
+  (isolating topology from the real wiring diagram) and the EfficientNet-B0/MobileNetV3-Large CNN
+  baselines, so navigation performance, robustness, and internal dynamics (via PCA of hidden-state
+  trajectories) can be compared across architectures.
 
 ## Repository structure
 
@@ -52,6 +76,41 @@ analysis_pca_statistics.py  KDE + vector-arithmetic (full-vision ≈ left-eye + 
 analysis_pca.py          PCA visualization of hidden-state trajectories from a single eval run
 ```
 
+## Models
+
+### FLYNN (`agents/connectome_rnn_agent.py`, `models/connectome_rnn_model.py`)
+
+Each unit is one neuron from the connectome edge list; its state follows a leaky recurrent update
+`h_new = (1 - alpha_type) * h + alpha_type * phi(W_sparse @ h + b)`, where `alpha_type` is a learnable
+per-cell-type leak rate and `phi` is `tanh`/`relu`. Sensory input: camera pixels through the virtual
+retina into visual-column neurons, tactile head-bristle neurons driven by collision/contact angle, and
+wind-direction input routed through a small MLP into the Johnston's organ neurons. Cell types
+parameterize per-type leak rates and let training scripts selectively freeze/train weights, biases, or
+per-type alphas.
+
+### SmallWorldNet control
+
+The same `LeakyConnectomeRNNCell` architecture, but wired with a Watts-Strogatz small-world graph
+(`connections_ws_small_world.csv`, matched on the real connectome's node/edge/degree statistics)
+instead of the real connectome — isolating whether small-world topology alone (a property the fly
+connectome is known to have) explains task performance, independent of the real wiring diagram. Select
+it via `BASE_PATH`/`EDGE_PATH` in `shared_config.py`.
+
+### Vision-CNN baselines (non-connectome)
+
+- **`MobileNetAgent`** (`agents/mobilenet_agent.py`) — ImageNet-pretrained MobileNetV3-Large (first
+  conv adapted to 1-channel grayscale, classifier removed) feeding a `GRUCell`, plus wind-direction and
+  collision scalars, into a small MLP policy head.
+- **`EfficientNetAgent`** (`agents/efficientnet_agent.py`) — identical scheme with an EfficientNet-B0
+  backbone.
+
+### Analytic teacher (`agents/teacher_analytic_agent.py`, `core/vfhplus.py`)
+
+`PlannerAnalyticTeacher` is not a trained network but a classical controller used to generate expert
+demonstrations for DAgger: a VFH\* planner (polar obstacle histogram + short-horizon A\* search with
+heading-consistency costs) produces a local waypoint, a PID line-follower steers toward it, and a
+scripted back-up/turn/forward recovery sequence handles collisions.
+
 ## Setup
 
 Requires Python 3.10+.
@@ -66,16 +125,22 @@ the plain PyPI wheel.
 
 ## Data and checkpoints
 
-The connectome's small per-modality CSVs (neuron IDs for photoreceptors, wind-sensing, descending
-neurons, cell types, etc.) and the SmallWorldNet generator script are tracked in this repo under
-`connectomes/`. The large raw edge lists are not:
+Connectome data and trained checkpoints are excluded from version control due to size. The
+connectome's small per-modality CSVs and the SmallWorldNet generator script are tracked under
+`connectomes/`. Not tracked:
 
 - `connectomes/drosophila adult connectome/connections_princeton.csv` (~261MB) — the real FAFB v783
-  connectome edge list, sourced from FlyWire.ai / the `philshiu/Drosophila_brain_model` project (see
+  edge list (`pre_root_id`, `post_root_id`, `syn_count` or equivalent aliases), sourced from
+  FlyWire.ai / the `philshiu/Drosophila_brain_model` project (see
   `connectomes/drosophila adult connectome/data source.txt` for provenance).
 - `connectomes/ws_small_world/connections_ws_small_world.csv` (~169MB) — the synthetic SmallWorldNet
   control edge list. Regeneratable from a fixed seed via
   `connectomes/ws_small_world/generate_ws_network_new.py`.
+- `connectomes/drosophila adult connectome/visual_column_L1_L2_L3_rear_view_{left,right}.csv`,
+  `head_bristles_{left,right}.csv`, `descending_neurons.csv`, `consolidated_cell_types.csv`,
+  `JO-C_and_JO-E.csv` — small per-modality neuron-ID CSVs (photoreceptor/lamina positions, tactile
+  head bristles, descending/output neurons, cell types, Johnston's organ wind-sensing neurons) *are*
+  tracked and load automatically once the large edge list above is in place.
 - Trained checkpoints (`checkpoints/*.pt`).
 
 <!-- TODO: host the files above (Zenodo/HuggingFace/institutional storage) and link them here, along
@@ -114,19 +179,26 @@ python visualize_episodes.py
 python analysis_pca_statistics.py
 ```
 
+`analysis_pca.py` and `compare_trajectories.py` still have local data-path constants near the top of
+each file that need to point at your own eval-data location before running them.
+
 ## License
 
 [MIT](LICENSE).
 
 ## Citation
 
-<!-- TODO: confirm the full author list and venue/year below before publishing. -->
+<!-- TODO: confirm the full author list before publishing -- neither this file nor arXiv:2607.00025's
+     metadata gave a reliable full author list at the time this was written. -->
+
+If you use this code, please cite the accompanying paper:
 
 ```bibtex
-@inproceedings{flynn2026,
-  title     = {FLYNN: Robust Neural Network for Robot Navigation using Fly Brain Topology},
-  author    = {Wang, Benquan},
-  booktitle = {IEEE/RSJ International Conference on Intelligent Robots and Systems (IROS)},
-  year      = {2026}
+@misc{flynn2026,
+  title         = {FLYNN: Robust Neural Network for Robot Navigation using Fly Brain Topology},
+  eprint        = {2607.00025},
+  archivePrefix = {arXiv},
+  url           = {https://arxiv.org/abs/2607.00025},
+  year          = {2026}
 }
 ```
