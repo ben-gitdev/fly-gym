@@ -6,6 +6,11 @@ import torch
 import matplotlib.pyplot as plt
 import cv2
 
+# This script lives in tests/, but imports repo-root modules directly (no package
+# prefix) -- add the repo root (this file's parent directory) to sys.path so that
+# works regardless of the caller's current working directory.
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
 # Import everything needed from the training script
 from train_connectome_rnn_dagger import (
     PathAnalyzer,

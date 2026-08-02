@@ -1,3 +1,13 @@
+"""
+Plot per-episode top-down trajectories (walls, obstacles, path, start/end, target) from a
+directory of eval rollout data produced by run_connectome_rnn_checkpoint.py /
+run_vision_agent_checkpoint.py.
+
+For each `trajectory_<episode>.csv` file found in the target directory, reads its matching
+`obstacles_<episode>.txt`, and, if `episode_summary.csv` is present, that episode's goal
+position, then saves a `visualization_<episode>.png` plot.
+"""
+
 import argparse
 import glob
 import os
@@ -80,7 +90,7 @@ def visualize_episode(obs_file, traj_file, output_file, target_x=None, target_y=
 
 def main():
    
-    target_dir = "eval_data/small_world_total_blind"
+    target_dir = "eval_data/small_world_textured_env"
     if not os.path.exists(target_dir):
         print(f"Directory not found: {target_dir}")
         return

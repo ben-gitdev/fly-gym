@@ -1,7 +1,6 @@
 """
 Shared training configuration module.
-Used by both train_connectome_rnn_dagger.py and train_connectome_rnn_rl.py 
-to ensure consistent optimizer configuration.
+Used by train_connectome_rnn_dagger.py to ensure consistent optimizer configuration.
 """
 
 import torch
@@ -30,7 +29,6 @@ BASE_PATH = "connectomes/drosophila adult connectome/"  # FLYNN -- default
 # -----------------------------
 # Paths (hardcoded)
 # -----------------------------
-# EDGE_PATH = "connectomes/drosophila adult connectome/connections_princeton_random.csv"
 
 # EDGE_PATH's filename depends on which BASE_PATH is active above -- derived here
 # (instead of a second independent comment/uncomment toggle) so the two can't drift

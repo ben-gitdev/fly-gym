@@ -1,0 +1,5 @@
+folder,collisions_mean,collisions_std,success_rate,Average SPL,Average SPL | Success,Std SPL | Success,Collisions | Success,Collisions Std | Success,Average Speed Mean,Average Speed Std,Time to Goal Mean,Time to Goal Std
+eval_data\connectome_textured_env,3.356,1.9647,0.4207,0.3165,0.7522,0.0947,1.5308,0.9898,0.0168,0.0021,10.6469,1.9484
+eval_data\small_world_textured_env,1.7896,1.4786,0.0324,0.0216,0.6672,0.0378,0.2,0.6325,0.0079,0.0033,11.9715,0.198
+eval_data\vision_efficientnet_robust_textured_env,1.3236,1.3187,0.1715,0.154,0.898,0.0854,0.3774,0.7397,0.0087,0.0054,11.2645,1.805
+eval_data\vision_mobilenet_robust_textured_env,0.6472,0.6707,0.0,0.0,,,,,0.0055,0.0023,12.0,0.0

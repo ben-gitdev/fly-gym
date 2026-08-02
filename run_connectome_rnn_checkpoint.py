@@ -8,13 +8,17 @@ evaluated directly.
 
 from __future__ import annotations
 
+import argparse
 import os
 import time
 import csv
 import numpy as np
 from typing import Optional, Tuple, List
 import pandas as pd
-
+try:
+    import cv2
+except ImportError:
+    cv2 = None
 import torch
 
 from agents.connectome_rnn_agent import ConnectomeAgent
@@ -43,20 +47,35 @@ from train_connectome_rnn_dagger import (
     BATCH_CHUNK,
     ROW_TILE_SIZE,
 )
-from train_connectome_rnn_rl import CTRL_PENALTY, TIME_PENALTY, PROG_SCALE, GOAL_BONUS, CONTACT_PENALTY
 from core.utils import build_connectome_cell, obs_to_torch
 
+# Reward-shaping constants below match train_connectome_rnn_rl.py's values (that module was an
+# abandoned PPO/critic training path, since removed -- see CLEANUP_PLAN.md §2d). Only
+# time_penalty/prog_scale/ctrl_penalty are actually used by _make_env() below; goal_bonus/
+# contact_penalty are passed as 0 there regardless.
+CTRL_PENALTY = 0.001
+TIME_PENALTY = 0.01
+PROG_SCALE = 10.0
 
-# EDGE_PATH = "connectomes/drosophila adult connectome/connections_princeton_random.csv"
+
 # CHECKPOINT = "checkpoints/connectome_rnn_dagger_princeton_random_full_vision.pt"
 # EDGE_PATH = "connectomes/drosophila adult connectome/connections_princeton.csv"
-CHECKPOINT = "checkpoints/connectome_rnn_dagger_princeton.pt"
-# CHECKPOINT = "checkpoints/connectome_rnn_dagger_small_world_full_vision.pt"
+# CHECKPOINT = "checkpoints/connectome_rnn_dagger_princeton_3.pt"
 RECORD_CSV = None#"connectomes/drosophila adult connectome/moonwalker_neurons.csv"       # e.g., "neurons_to_record.csv"
 OVERWRITE_CSV = None#"connectomes/drosophila adult connectome/moonwalker_neurons.csv"    # e.g., "neurons_to_overwrite.csv"
 END_ON_COLLISION = False
 MAX_EPISODE_STEPS = 600
 
+def maybe_show_cameras(obs):
+    if cv2 is None: return
+    try:
+        left_gray = cv2.cvtColor(obs["cam_left"], cv2.COLOR_RGB2GRAY)
+        right_gray = cv2.cvtColor(obs["cam_right"], cv2.COLOR_RGB2GRAY)
+        frame = np.hstack([left_gray, right_gray])
+        cv2.imshow("Agent View (Left | Right)", frame)
+        cv2.waitKey(1)
+    except Exception:
+        pass
 
 def _make_env(render_mode: Optional[str], n_obstacles: int) -> MuJoCoTwoCamEnv:
     return MuJoCoTwoCamEnv(
@@ -241,6 +260,9 @@ def rollout_episode(
         obs_t = obs_to_torch(obs, device=device, dtype=dtype, vision=vision)
         h, action = agent.step(h, obs_t)
         
+        if render:
+            maybe_show_cameras(obs)
+
         # --- Overwrite Neuron Activity AFTER step to clamp values ---
         if overwrite_indices and overwrite_values is not None and (steps % overwrite_interval < overwrite_steps):
             h[:, overwrite_indices] = overwrite_values
@@ -369,7 +391,7 @@ def run_one_configuration(checkpoint, vision, rendermode = None):
                 overwrite_steps=overwrite_steps,
                 seed=ep,
                 vision=vision,
-                save_hidden_states=False,#(ep in save_hidden_state_episodes),
+                save_hidden_states=True,#(ep in save_hidden_state_episodes),
             )
             episode_summaries.append({
                 "episode": ep,
@@ -398,14 +420,34 @@ def run_one_configuration(checkpoint, vision, rendermode = None):
         env.close()
     return save_dir
 
+def parse_args():
+    parser = argparse.ArgumentParser(
+        description="Roll out a trained connectome RNN (FLYNN/SmallWorldNet) checkpoint across "
+                     "the 4 vision conditions (full vision, right-eye-only, left-eye-only, blind)."
+    )
+    parser.add_argument(
+        "checkpoint",
+        help="Path to the .pt checkpoint to evaluate. Required: this used to default to a "
+             "hardcoded SmallWorldNet checkpoint, which made it ambiguous which trained model "
+             "actually produced a given result (see CLEANUP_PLAN.md §2a-caveat). Now the caller "
+             "must say explicitly.",
+    )
+    return parser.parse_args()
+
+
 if __name__ == "__main__":
-    checkpoint = CHECKPOINT
+    args = parse_args()
+    checkpoint = args.checkpoint
+    # while not os.path.exists(checkpoint):
+    #     print(f"Waiting for checkpoint {checkpoint} to be created...")
+    #     time.sleep(60)
+    # time.sleep(60)
     rendermode = "human"
-    # dir1 = run_one_configuration(checkpoint, vision=[True, True], rendermode = rendermode)
-    # dir2 = run_one_configuration(checkpoint, vision=[False, True], rendermode = rendermode)
-    # dir3 = run_one_configuration(checkpoint, vision=[True, False], rendermode = rendermode)
+    dir1 = run_one_configuration(checkpoint, vision=[True, True], rendermode = rendermode)
+    dir2 = run_one_configuration(checkpoint, vision=[False, True], rendermode = rendermode)
+    dir3 = run_one_configuration(checkpoint, vision=[True, False], rendermode = rendermode)
     dir4 = run_one_configuration(checkpoint, vision=[False, False], rendermode = rendermode)
 
-    # from analysis_pca_statistics import analysis_pca_cka
-    # condition_folders = [(dir1, "Full vision"), (dir2, "Right eye only"),(dir3, "Left eye only"), (dir4, "Total blindness")]
+    # # from analysis_pca_statistics import analysis_pca_cka
+    # condition_folders = [(dir1, "Full vision"), (dir2, "Right eye only"), (dir3, "Left eye only"), (dir4, "Total blindness")]
     # analysis_pca_cka(condition_folders)

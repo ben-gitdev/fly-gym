@@ -18,7 +18,6 @@ from environment.mujoco_two_cam_env_random_obstacles import MuJoCoTwoCamEnv
 from agents.teacher_analytic_agent import PlannerAnalyticTeacher
 from agents.efficientnet_agent import EfficientNetAgent
 from agents.mobilenet_agent import MobileNetAgent
-from agents.dual_backbone_agent import DualBackboneAgent
 from core.utils import get_device
 
 # -----------------------------
@@ -105,20 +104,6 @@ AGENT_REGISTRY = {
         "label": "MobileNetV3-Large",
         "checkpoint_prefix": "mobilenet_dagger",
         "loss_csv": "mobilenet_dagger_loss.csv",
-    },
-    "dual_efficientnet": {
-        "class": DualBackboneAgent,
-        "label": "Dual-EfficientNet-B0",
-        "checkpoint_prefix": "dual_efficientnet_dagger",
-        "loss_csv": "dual_efficientnet_dagger_loss.csv",
-        "backbone_type": "efficientnet",
-    },
-    "dual_mobilenet": {
-        "class": DualBackboneAgent,
-        "label": "Dual-MobileNetV3-Large",
-        "checkpoint_prefix": "dual_mobilenet_dagger",
-        "loss_csv": "dual_mobilenet_dagger_loss.csv",
-        "backbone_type": "mobilenet",
     },
 }
 
@@ -577,25 +562,6 @@ def preprocess_obs_cpu(obs, dtype=np.float32):
         "collision": col,
     }
 
-def preprocess_obs_cpu_dual(obs, dtype=np.float32):
-    """
-    Process observation on CPU (dual-backbone agents).
-    Returns dict with separate 'img_left' and 'img_right' (each 1, 30, 30).
-    """
-    left_small = cv2.resize(obs["cam_left"], (30, 30), interpolation=cv2.INTER_AREA)
-    right_small = cv2.resize(obs["cam_right"], (30, 30), interpolation=cv2.INTER_AREA)
-    left_gray = cv2.cvtColor(left_small, cv2.COLOR_RGB2GRAY)
-    right_gray = cv2.cvtColor(right_small, cv2.COLOR_RGB2GRAY)
-    img_left = left_gray[np.newaxis, :, :]
-    img_right = right_gray[np.newaxis, :, :]
-    wind_dir, col = _preprocess_sensors(obs, dtype)
-    return {
-        "img_left": img_left.astype(np.uint8),
-        "img_right": img_right.astype(np.uint8),
-        "wind_direction": wind_dir,
-        "collision": col,
-    }
-
 def forward_policy_sequence(agent, xs):
     """Wrapper for agent.forward_sequence for use in train_step."""
     _, y_seq, _ = agent.forward_sequence(xs, checkpoint_steps=False)
@@ -679,8 +645,6 @@ def rollout_and_collect_balanced(
     need_student = beta < 1.0
     np_dtype = np.float32 if dtype == torch.float32 else np.float16
     use_cuda = device.type == 'cuda'
-    is_dual = isinstance(agent, DualBackboneAgent)
-    preprocess_fn = preprocess_obs_cpu_dual if is_dual else preprocess_obs_cpu
 
     total_chunks = {'straight': 0, 'turn': 0, 'collision': 0, 'pre_collision': 0, 'start': 0}
     episodes_done = 0
@@ -703,14 +667,8 @@ def rollout_and_collect_balanced(
         h = torch.zeros(n_envs, agent.hidden_size, device=device, dtype=dtype)
         if use_cuda:
             # Opt #4: Pre-allocated pinned memory for CPU→GPU input transfers
-            if is_dual:
-                pin_imgs_l = torch.empty(n_envs, 1, 30, 30, dtype=torch.uint8).pin_memory()
-                pin_imgs_r = torch.empty(n_envs, 1, 30, 30, dtype=torch.uint8).pin_memory()
-                pin_imgs_l_np = pin_imgs_l.numpy()
-                pin_imgs_r_np = pin_imgs_r.numpy()
-            else:
-                pin_imgs  = torch.empty(n_envs, 1, 30, 60, dtype=torch.uint8).pin_memory()
-                pin_imgs_np  = pin_imgs.numpy()
+            pin_imgs  = torch.empty(n_envs, 1, 30, 60, dtype=torch.uint8).pin_memory()
+            pin_imgs_np  = pin_imgs.numpy()
             pin_winds = torch.empty(n_envs, 2, dtype=torch.float32).pin_memory()
             pin_cols  = torch.empty(n_envs, 1, dtype=torch.float32).pin_memory()
             pin_winds_np = pin_winds.numpy()
@@ -737,7 +695,7 @@ def rollout_and_collect_balanced(
             obs_list[i] = obs
             steps[i] += 1
             raw_obs_buf[i].append(obs)
-            proc_obs_buf[i].append(preprocess_fn(obs, dtype=np_dtype))
+            proc_obs_buf[i].append(preprocess_obs_cpu(obs, dtype=np_dtype))
 
         # 2. Launch GPU inference ASYNC (Opt #5 - overlaps with teacher planning)
         #    Exclude done/trunc envs from GPU work; teacher-invalidated envs are
@@ -750,33 +708,17 @@ def rollout_and_collect_balanced(
             if use_cuda:
                 # Opt #4: Fill pinned buffers via numpy views (no intermediate tensors)
                 for idx, i in enumerate(gpu_ids):
-                    if is_dual:
-                        pin_imgs_l_np[idx] = proc_obs_buf[i][-1]["img_left"]
-                        pin_imgs_r_np[idx] = proc_obs_buf[i][-1]["img_right"]
-                    else:
-                        pin_imgs_np[idx]  = proc_obs_buf[i][-1]["img"]
+                    pin_imgs_np[idx]  = proc_obs_buf[i][-1]["img"]
                     pin_winds_np[idx] = proc_obs_buf[i][-1]["wind_direction"]
                     pin_cols_np[idx]  = proc_obs_buf[i][-1]["collision"]
-                if is_dual:
-                    imgs_l_gpu = pin_imgs_l[:n_gpu].to(device, non_blocking=True)
-                    imgs_r_gpu = pin_imgs_r[:n_gpu].to(device, non_blocking=True)
-                else:
-                    imgs_gpu  = pin_imgs[:n_gpu].to(device, non_blocking=True)
+                imgs_gpu  = pin_imgs[:n_gpu].to(device, non_blocking=True)
                 winds_gpu = pin_winds[:n_gpu].to(device, dtype=dtype, non_blocking=True)
                 cols_gpu  = pin_cols[:n_gpu].to(device, dtype=dtype, non_blocking=True)
             else:
                 # Non-CUDA fallback (original style)
-                if is_dual:
-                    imgs_l_gpu = torch.from_numpy(
-                        np.stack([proc_obs_buf[i][-1]["img_left"] for i in gpu_ids])
-                    ).to(device)
-                    imgs_r_gpu = torch.from_numpy(
-                        np.stack([proc_obs_buf[i][-1]["img_right"] for i in gpu_ids])
-                    ).to(device)
-                else:
-                    imgs_gpu = torch.from_numpy(
-                        np.stack([proc_obs_buf[i][-1]["img"] for i in gpu_ids])
-                    ).to(device)
+                imgs_gpu = torch.from_numpy(
+                    np.stack([proc_obs_buf[i][-1]["img"] for i in gpu_ids])
+                ).to(device)
                 winds_gpu = torch.from_numpy(
                     np.stack([proc_obs_buf[i][-1]["wind_direction"] for i in gpu_ids])
                 ).to(device, dtype=dtype)
@@ -784,11 +726,7 @@ def rollout_and_collect_balanced(
                     np.stack([proc_obs_buf[i][-1]["collision"] for i in gpu_ids])
                 ).to(device, dtype=dtype)
 
-            if is_dual:
-                xs_gpu = {"img_left": imgs_l_gpu, "img_right": imgs_r_gpu,
-                          "wind_direction": winds_gpu, "collision": cols_gpu}
-            else:
-                xs_gpu = {"img": imgs_gpu, "wind_direction": winds_gpu, "collision": cols_gpu}
+            xs_gpu = {"img": imgs_gpu, "wind_direction": winds_gpu, "collision": cols_gpu}
 
             # Opt #2: GPU index tensor for h gather/scatter
             gpu_idx_tensor = torch.tensor(gpu_ids, device=device, dtype=torch.long)
@@ -946,15 +884,9 @@ def apply_camera_dropout(xs, p_left=CAM_DROP_LEFT, p_right=CAM_DROP_RIGHT, p_bot
       - both cameras blacked out (probability p_both)
       - no dropout               (remaining probability)
 
-    Supports both single-backbone ('img' key, left/right halves concatenated)
-    and dual-backbone ('img_left' / 'img_right' keys) layouts.
+    xs["img"] has shape (T, B, 1, 30, 60) -- left half [:30], right half [30:].
     """
-    is_dual = "img_left" in xs
-
-    if is_dual:
-        B = xs["img_left"].shape[1]
-    else:
-        B = xs["img"].shape[1]
+    B = xs["img"].shape[1]
 
     # Draw one uniform random per chunk and assign dropout category
     rand_vals = np.random.rand(B)
@@ -972,21 +904,11 @@ def apply_camera_dropout(xs, p_left=CAM_DROP_LEFT, p_right=CAM_DROP_RIGHT, p_bot
     zero_left  = drop_left_mask | drop_both_mask
     zero_right = drop_right_mask | drop_both_mask
 
-    if is_dual:
-        # xs["img_left"]  shape: (T, B, 1, 30, 30)  (torch tensor)
-        # xs["img_right"] shape: (T, B, 1, 30, 30)
-        for b in range(B):
-            if zero_left[b]:
-                xs["img_left"][:, b] = 0
-            if zero_right[b]:
-                xs["img_right"][:, b] = 0
-    else:
-        # xs["img"] shape: (T, B, 1, 30, 60)  — left half [:30], right half [30:]
-        for b in range(B):
-            if zero_left[b]:
-                xs["img"][:, b, :, :, :30] = 0
-            if zero_right[b]:
-                xs["img"][:, b, :, :, 30:] = 0
+    for b in range(B):
+        if zero_left[b]:
+            xs["img"][:, b, :, :, :30] = 0
+        if zero_right[b]:
+            xs["img"][:, b, :, :, 30:] = 0
 
     return xs
 
@@ -1072,8 +994,6 @@ def main():
     # Initialize Agent
     print(f"Initializing {agent_label} Agent...")
     agent_kwargs = dict(action_dim=2, hidden_size=256, dtype=dtype)
-    if "backbone_type" in agent_cfg:
-        agent_kwargs["backbone_type"] = agent_cfg["backbone_type"]
     agent = AgentClass(**agent_kwargs).to(device=device, dtype=dtype)
     
     # Resume from checkpoint if configured

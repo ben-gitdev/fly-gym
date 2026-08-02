@@ -163,6 +163,304 @@ Everything else in this document is still a plan to review, not an executed acti
   225-step teacher-only episode, and regenerated `direction_tuning_plot.png` with a sane-looking
   result (a turn spike at the start settling to near-zero angle change once the path straightens out).
 
+- **§1's fixes were committed** to a new branch, `cleanup-for-publication` (PR opened against `main`),
+  covering exactly: `shared_config.py`, `train_connectome_rnn_dagger.py`,
+  `environment/mujoco_two_cam_env_random_obstacles.py`, both `environment/mujoco_model_random_obstacles*.xml`
+  files, `collision_statistics.py`, `run_vision_agent_checkpoint.py`, `tune_direction_threshold.py`, and
+  this file. **Left out on purpose** (per author decision): `analysis_pca_statistics.py`,
+  `compare_trajectories.py`, `count_collisions.py`, `run_connectome_rnn_checkpoint.py`,
+  `visualize_episodes.py`, and `code update log.txt` — all still uncommitted, in-progress personal
+  analysis-script edits unrelated to the §1 fixes. This matters for §2 below: it means those 5 scripts'
+  *current on-disk state* is not what got cleaned up, even though §2a previously described them as
+  settled.
+
+- **Audited §2 for accuracy after the above.** Independently re-verified every claim in §2 (existence
+  checks, `git check-ignore -v` for every §2b path, repo-wide grep for every §2d/§2e "zero
+  references"/"genuinely wired in" claim, file-size spot checks, and direct reads of current file
+  content) rather than trusting the original write-up. Found and fixed 4 real discrepancies:
+    - **§2a was stale for the 5 uncommitted files listed above.** Their current content isn't the
+      "keep as-is, reproduction-ready" state §2a described — concretely, `analysis_pca_statistics.py`
+      crashes immediately on its own `assert os.path.isdir(folder)` if run today (its
+      `CONDITION_FOLDERS` point at `eval_data/small_world_*_states` paths that no longer exist);
+      `visualize_episodes.py` and `count_collisions.py` both target `eval_data/*_textured_env` folders
+      that don't exist either; `run_connectome_rnn_checkpoint.py` now defaults `CHECKPOINT` to a
+      SmallWorldNet checkpoint instead of FLYNN — directly contradicting §1.1 — and has a live
+      `cv2.imshow` debug preview wired into its render path; `compare_trajectories.py`'s `BASE_DIR` is a
+      hardcoded personal absolute path outside the repo. Moved these 5 out of §2a into a new
+      "2a-caveat" table (see below) rather than silently leaving §2a wrong.
+    - **§2c misnamed a file**: the claim that `analysis_pca.py` *and* `visualize_episodes.py` already
+      point at the external `Publications/IROS2026/materials/` archive was half wrong —
+      `visualize_episodes.py` has never referenced that archive (checked both its committed and current
+      uncommitted content); `compare_trajectories.py` is the one that actually does. Fixed.
+    - **§2c had a stale checkpoint count**: "16 files" in `checkpoints/` → actually 15. Fixed.
+    - **§2d had a stale backup-folder count**: "10 dated snapshot folders" in `backups/` → actually 12
+      (the 299MB size claim was exactly right). Fixed.
+  Everything else in §2 — file existence, `.gitignore` exclusion behavior for every §2b path, size
+  claims in §2c, and "zero references"/"genuinely wired in" claims throughout §2d/§2e — held up under
+  independent verification.
+
+- **§3 applied: rewrote `.gitignore`**, but not verbatim as originally drafted — verifying it against
+  `git check-ignore -v` (as the original §3 note already warned to do) turned up a real ordering bug in
+  my own proposed rewrite before it went in:
+    - **Bug found**: the draft put the connectome-CSV exceptions (`!connectomes/**/JO-C_and_JO-E.csv`
+      etc.) *before* the later blanket `*.csv` rule for root result files. Gitignore resolves
+      overlapping patterns by last-match-wins, so that later blanket `*.csv` was silently re-ignoring
+      every connectome CSV exception that came before it — none of the §2b connectome CSVs would
+      actually have surfaced as trackable. **Fix**: moved the "Result figures" `*.csv`/`*.png` block
+      before the "Connectome data" block, so the connectome-specific exceptions are always the
+      last-matching (winning) rule for paths under `connectomes/`.
+    - **Also restored `*.pdf`/`*.jpg`**, which the original §3 draft had silently dropped from the old
+      `.gitignore` with no documented reason to remove them. Nothing on disk currently needs them
+      (confirmed via a repo-wide search — the only `.pdf`/`.jpg`/`.mat`/`.xlsx`/`.gt`/`.gml` files
+      anywhere live entirely inside `connectomes/c.elegans connectome/`, already covered by that
+      folder's own blanket ignore), but keeping them costs nothing and avoids a silent regression in
+      protection for future stray files.
+    - **Verified with `git status --short --untracked-files=all` + spot-check `git check-ignore -v`**
+      after the fix: exactly the §2b file set now surfaces as untracked (7 small connectome CSVs ×2
+      folders, `generate_ws_network_new.py`, 4 `environment/textures/*.png`, 6 `bar_*.png`, 3
+      `spl_*.png`, `collision_statistics.csv`, `collision_statistics_checker_texture.csv` — 31 files
+      total) — and nothing else. Confirmed everything meant to *stay* ignored actually does:
+      `connections_princeton.csv` (261MB, §2c external-hosting), `generate_ws_network.py` (superseded,
+      §2d), `performance_results/checker_texure/`'s and `performance_results/textured_env/`'s `bar_*.png`
+      backup copies (would otherwise have matched `!bar_*.png` if `performance_results/` weren't
+      separately folder-ignored — gitignore can't re-include a file whose parent directory is itself
+      ignored, which is exactly why that folder rule is load-bearing here), and the 3 superseded
+      `collision_statistics*.csv` duplicates.
+    - **One unplanned side effect, not in the original §2b list**: `connectomes/drosophila adult
+      connectome/data source.txt` also now surfaces as untracked — it's a `.txt` file, so it was never
+      covered by the old blanket `connectomes/` folder-ignore's replacement (the new rules only touch
+      `*.csv`/`*.py` inside `connectomes/`, plus the two named unrelated-dataset folders). This is the
+      file §2c already cites for provenance ("gives provenance but no license"), so surfacing it seems
+      like a good thing, not a leak — but flagging it since it wasn't a deliberate §2b entry.
+  **Not done yet** (this was scoped to the `.gitignore` rewrite itself): `git add`-ing the newly-visible
+  files and committing — that's §4 step 3, a separate step.
+
+- **§2b executed: staged all 30 newly-un-ignored files** (`git add`, not yet committed). Verified with
+  `git status --short` immediately after: all 30 show as `A` (staged-new), and the only file left
+  untracked is the one deliberately-excluded extra from §3's Progress log entry,
+  `connectomes/drosophila adult connectome/data source.txt` (not a §2b item — still an open question,
+  not added). Total size of the staged set: **10.9MB**, measured per-file with `du` over
+  `git diff --cached --name-only` (corrected — the "6.9MB" first reported here was wrong, caused by a
+  `du -ch` invocation over multiple explicit paths silently mis-summing once a space-containing path
+  was in the mix; re-verified file-by-file this time). Either way: small, no surprise large files
+  snuck in via a wildcard mistake (every path was added explicitly, not via glob). **Not committed** —
+  staged only, pending your go-ahead to fold into a commit (either a new commit on
+  `cleanup-for-publication`, or its own branch/PR).
+
+- **§2d executed**, split by reversibility:
+    - **Tracked files, `git rm`'d** (reversible via git history): `models/connectome_rnn_model_no custom
+      autograd.py`, `MUJOCO_LOG.TXT`, `train_connectome_rnn_rl.py`, `run_critic_warmup.py`.
+    - **Fixed the resulting dangling import** in `run_connectome_rnn_checkpoint.py`: removed
+      `from train_connectome_rnn_rl import CTRL_PENALTY, TIME_PENALTY, PROG_SCALE, GOAL_BONUS,
+      CONTACT_PENALTY` and inlined the 3 values it actually uses as local constants
+      (`CTRL_PENALTY=0.001`, `TIME_PENALTY=0.01`, `PROG_SCALE=10.0` — copied verbatim from the deleted
+      file); `GOAL_BONUS`/`CONTACT_PENALTY` were dead imports (`_make_env()` already hardcodes
+      `goal_bonus=0, contact_penalty=0` directly), so they were dropped rather than inlined. Verified:
+      a repo-wide grep confirms this was the only live dependent (a second reference exists only inside
+      `backups/`, already a separate concern); `ast.parse` confirms the file still parses; tracing where
+      these 3 constants flow showed they only ever feed an RL-style `reward`/`"return"` column that gets
+      summed and written to each episode's raw summary row but is never actually consumed by
+      `collision_statistics.py`/Table I — so inlining them is behavior-preserving, not just
+      syntax-preserving. This edit was scoped to exactly this one import; none of
+      `run_connectome_rnn_checkpoint.py`'s other pre-existing uncommitted scratch edits (§2a-caveat)
+      were touched.
+    - **Also fixed** a now-stale docstring line in `shared_config.py` ("Used by both
+      `train_connectome_rnn_dagger.py` and `train_connectome_rnn_rl.py`" → just the former). Verified
+      the module still imports correctly.
+    - **Removed** the empty `tests/` directory (confirmed empty via `ls`, and untracked — git doesn't
+      track empty dirs — so this was a plain `rmdir`, nothing lost).
+    - **Everything else in §2d is untracked, disk-only data with no git backup**, so deleting it
+      outright isn't reversible the way the `git rm`s above are. Rather than `rm` it, moved all of it
+      into a new holding folder, `_pending_deletion/` (added to `.gitignore` so it doesn't pollute
+      `git status`), preserving relative paths:
+      `connectomes/ws_small_world/generate_ws_network.py`, `connectomes/drosophila adult
+      connectome/{parquet_to_csv.py, Connectivity_783.csv, Connectivity_783.parquet.png,
+      connections_princeton_random.csv, photoreceptors_pos_{left,right}.csv, moonwalker_neurons.csv,
+      olfactory_ORN_DM1_{left,right}.csv}`, `connectomes/c.elegans connectome/`, `connectomes/drosophila
+      larva connectome/`, most of `loss/` (see correction below), and the 3 superseded
+      `collision_statistics*.csv` variants. Total: **525MB** (measured with `du -sh` over the actual
+      holding folder — bigger than §2d's own original per-item size estimates suggested, mainly because
+      `Connectivity_783.csv` turned out to be 239MB, not the few-MB figure implied by "reformat of the
+      same data" framing). Nothing was permanently deleted — this is a plain local move, fully
+      reversible by moving files back out.
+    - **Correction found while moving `loss/`, caught before anything was lost**: it contains a
+      `loss/keep/` subfolder (3 PNGs: `connectome princetion.png`, `full_model.png`,
+      `random_connectome.png`) that had clearly already been hand-curated and named "keep" — direct
+      evidence these specific plots were deliberately preserved, contradicting §2d's blanket
+      classification of all of `loss/` as safe to remove. **`loss/keep/` was restored to `loss/keep/`
+      immediately, not moved into `_pending_deletion/`**; only the rest of `loss/` (the per-model
+      `*_dagger_loss.csv` files and 5 non-"keep" `losses_*.png` plots) went into the holding folder. A
+      follow-up repo-wide search for other "keep"-named paths turned up two more, both left untouched:
+      `checkpoints/keep/` (currently empty — doesn't resolve §2c's still-open "which checkpoints to
+      host" question, but hints you'd started curating one) and
+      `backups/20251223_teacher_mlp/checkpoints/keep` (inside `backups/`, already a separate, deferred
+      concern). Neither was in the original plan; flagging both here.
+  **Not done** (out of scope, per §2d's own recommendation): archiving or removing `backups/` — still
+  needs an external storage destination decided first.
+
+- **§2a-caveat: `run_connectome_rnn_checkpoint.py` fixed, moved back into §2a.** Three targeted fixes,
+  layered on top of the file's pre-existing scratch state without disturbing the rest of it:
+    - **Checkpoint path is now a required CLI positional argument** (`argparse`, matching §1.6's fix to
+      `run_vision_agent_checkpoint.py`), replacing the hardcoded `CHECKPOINT =
+      "checkpoints/connectome_rnn_dagger_small_world_full_vision.pt"` module constant that was silently
+      defaulting to SmallWorldNet and directly contradicting §1.1. No fallback default — the existing
+      `FileNotFoundError` in `_load_agent()` already covers a bad/missing path, so nothing new was added
+      there. Verified: `--help` shows the arg and its rationale; no args → argparse usage error, exit 2;
+      a nonexistent path → the existing `FileNotFoundError` fires (after env construction, same as
+      before — unrelated to this fix).
+    - **Fixed the `cv2` bug**: `import cv2` was a hard import, but `maybe_show_cameras()` guarded on
+      `if cv2 is None: return` — dead code, since a failed hard import raises `ImportError` at module
+      load instead of leaving `cv2` as `None`. Changed to `try: import cv2 / except ImportError: cv2 =
+      None`, so the debug camera-preview window degrades gracefully to a no-op on a machine without
+      `opencv-python`, matching what the guard clause always implied it should do.
+    - **Uncommented the 3 disabled vision conditions** in `__main__` (`dir2`/`dir3`/`dir4`: right-eye-only,
+      left-eye-only, blind) so all 4 conditions run again, matching the paper's full ablation sweep,
+      instead of just the one (full-vision) condition that was left active.
+    - **Verified by actually running it**, not just syntax-checking: a smoke test (not committed — ad hoc,
+      outside the repo) called `_load_agent`/`_make_env`/`rollout_episode` directly against a real FLYNN
+      checkpoint (`connectome_rnn_dagger_princeton_full_vision.pt`) for all 4 vision masks headlessly.
+      Built the real 138,584-node connectome cell and ran successfully end-to-end: full vision and
+      right-eye-only both reached the goal (366 and 355 steps); left-eye-only and blind both timed out
+      at the 600-step cap without reaching it — directionally consistent with the paper's finding that
+      vision loss hurts navigation. Confirmed `cv2` imports normally (soft-import is a no-op when the
+      package is actually present). No debris left in the repo — the smoke test wrote to a system temp
+      directory, not `eval_data/`. **Not committed** — this fix sits on top of the file's other
+      pre-existing uncommitted scratch edits (wrong `save_hidden_states` flag, etc.), same situation as
+      before; only the 3 requested changes were made, nothing else in the file was touched.
+
+- **§2a-caveat: `analysis_pca_statistics.py` and `count_collisions.py` accepted as resolved (author
+  call), moved back into §2a.**
+    - `analysis_pca_statistics.py` was edited manually (outside this session): every `CONDITION_FOLDERS`
+      entry's hardcoded personal absolute path
+      (`D:\Benquan\OneDrive MSState\...\fly_gym\eval_data\...`) was replaced with a generic
+      `path_to\eval_data\...` placeholder — removing the machine-specific path the earlier audit flagged.
+      Confirmed via `git diff` that this is the only substantive change (plus unrelated tweaks to
+      `COLORS`/`N_PCS`). The live `assert os.path.isdir(folder)` will still fire until `path_to` is
+      substituted with a real path — that's expected for a template, not a leftover bug, so this is
+      accepted as resolved as-is rather than something needing a working default path.
+    - `count_collisions.py`: accepted as-is, no changes made. Its active `__main__` folder list still
+      points at `eval_data/*_textured_env` folders that don't exist yet — per author, this reflects an
+      in-progress/future experiment naming rather than a defect, so it's no longer treated as an open
+      problem.
+
+- **§2a-caveat: `visualize_episodes.py` partially fixed** (docstring added, debug filter removed;
+  `target_dir` issue still open). Added a module-level docstring describing what the script does
+  (reads `trajectory_<episode>.csv`/`obstacles_<episode>.txt` pairs plus `episode_summary.csv` goal
+  positions, saves one `visualization_<episode>.png` per episode). Removed the hardcoded
+  `if ep_id is not 26: continue` debug filter that limited every run to a single episode (also fixing
+  the `is not`-on-an-int anti-pattern by deleting it, rather than correcting it to `!=`). Verified by
+  actually running the underlying logic against a real eval_data folder with real trajectory data
+  (`eval_data/connectome_rnn_20260306-084812/`, 75 episodes) rather than just syntax-checking: all 75
+  episodes were processed and plotted (min=1, max=75), confirming the filter no longer silently
+  restricts output to episode 26. Output was written to a scratch directory, not `eval_data/`, and
+  cleaned up afterward — no debris left in the repo. **Not touched** (out of scope for this request):
+  `target_dir = "eval_data/small_world_textured_env"` still points at a folder that doesn't exist —
+  the file remains in the 2a-caveat table for that reason alone.
+
+- **`visualize_episodes.py` marked done (author call), moved into §2a.** No further changes made — the
+  remaining `target_dir` gap is accepted as-is, same reasoning as `count_collisions.py` just above
+  (reflects an in-progress/future experiment, not a defect). The 2a-caveat table now holds only
+  `compare_trajectories.py`.
+
+- **`compare_trajectories.py` edited manually (outside this session), marked complete.** Confirmed via
+  `git diff` that `BASE_DIR`'s hardcoded personal absolute path
+  (`D:\Benquan\OneDrive MSState\...\Publications\IROS2026\materials\trajectories\small_world`) was
+  replaced with a generic `path_to\trajectories` placeholder — same fix pattern already accepted for
+  `analysis_pca_statistics.py`. Other changes in the diff (`FOLDER_LABELS` reordering/relabeling "Blind"
+  → "Total Blindness", one extra `COLORS` entry) are cosmetic, unrelated to the reproducibility concern.
+  **§2a-caveat is now empty** — all 5 files originally flagged there are resolved or accepted as-is;
+  every file in §2's "keep as-is" role now lives in the single §2a table.
+
+- **§2e row 1 resolved (author decision: drop).** Deleted `test_verification_data/obstacles_1.txt`
+  (tracked — `git rm`'d, recoverable from git history if ever needed) and its untracked siblings
+  `trajectory_1.csv`/`activity_1.csv` (plain `rm` — no git history existed for these, so this is not
+  recoverable through git). The directory was left empty afterward and removed.
+
+- **§2e row 2 resolved (author decision: drop).** Deleted `agents/dual_backbone_agent.py` (`git rm`)
+  and removed every trace of its two dependents rather than just deleting-and-hoping:
+    - `run_vision_agent_checkpoint.py`: removed the `DualBackboneAgent` import, the
+      `preprocess_obs_cpu_dual()` function, every `is_dual` branch inside `run_episode()` (pinned-buffer
+      allocation, CPU preprocessing dispatch, CPU→GPU transfer for both the CUDA and non-CUDA paths),
+      the `dual_mobilenet`/`dual_efficientnet` cases from `_detect_model_type()` and `_build_agent()`,
+      and the corresponding `--model-type` CLI choices/module docstring mention.
+    - `train_visionnet_dagger.py`: removed the same import, the `"dual_efficientnet"`/`"dual_mobilenet"`
+      entries from `AGENT_REGISTRY`, the `preprocess_obs_cpu_dual()` function, every `is_dual` branch in
+      `rollout_and_collect_balanced()` (pinned-buffer allocation, per-env fill, GPU transfer for both
+      CUDA and non-CUDA paths, `xs_gpu` dict construction) and in `apply_camera_dropout()` (simplified
+      to the single `'img'`-key layout only, with its docstring updated to match), and a now-dead
+      `if "backbone_type" in agent_cfg:` kwarg branch in the agent-construction code (only ever
+      triggered by the now-removed registry entries).
+    - Confirmed via `grep` across every tracked `.py` file (and a repo-wide search excluding
+      `backups/`) that zero references to `dual_backbone`/`DualBackboneAgent` remain anywhere live.
+    - Verified by actually running the simplified code, not just syntax-checking it:
+      `run_vision_agent_checkpoint.py`'s `run_episode()` completed a real 50-step episode against a
+      real MobileNet checkpoint; `train_visionnet_dagger.py`'s `apply_camera_dropout()` ran correctly
+      against a synthetic batch; `rollout_and_collect_balanced()` ran a real 2-episode, 2-env collection
+      pass on this machine's actual CUDA device (confirmed `get_device()` returns `"cuda"` here, so this
+      exercised the CUDA pinned-memory transfer path, not just the CPU fallback) and produced sane
+      chunk counts (49 straight / 2 turn / 2 start, 0 collision — no crashes, no stray files left in the
+      repo afterward).
+
+- **§2e row 3 resolved (author decision: drop).** Deleted `scripts/create_random_connectome.py`
+  (tracked — `git rm`'d) and removed the now-empty `scripts/` directory. Permanently deleted its output,
+  `connectomes/drosophila adult connectome/connections_princeton_random.csv` (276MB) — this had been
+  sitting in the `_pending_deletion/` holding folder since §2d's untracked-data pass; this is the first
+  time anything has actually been removed from that folder for good rather than just moved there.
+  Cleaned up the two dangling commented-out references to the now-deleted CSV path
+  (`shared_config.py`, `run_connectome_rnn_checkpoint.py`) as a direct consequence of the deletion —
+  left the `connectome_rnn_dagger_princeton_random_full_vision.pt` checkpoint reference comment in
+  `run_connectome_rnn_checkpoint.py` untouched, since that trained checkpoint is a separate artifact not
+  covered by this request. Verified: both edited files still parse and `shared_config` still imports
+  correctly (`BASE_PATH`/`EDGE_PATH` unaffected); repo-wide `grep` (excluding `backups/`) confirms zero
+  remaining references to `create_random_connectome`/`connections_princeton_random`.
+
+- **§2e row 4 resolved (author decision: move).** Moved `tune_direction_threshold.py` and
+  `debug_rnn_grad.py` into a new `tests/` directory via `git mv` (preserves file history rather than a
+  delete-and-recreate). Confirmed neither script is imported/referenced from anywhere else in the repo
+  first (`grep`, clean). `tune_direction_threshold.py` imports repo-root modules with no package prefix
+  (`from train_connectome_rnn_dagger import ...`) — moving it broke that import
+  (`ModuleNotFoundError: No module named 'train_connectome_rnn_dagger'`, confirmed by actually running
+  it from the new location before fixing anything). Fixed with
+  `sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))` right before the
+  import, which resolves the repo root from the file's own location regardless of the caller's working
+  directory (more robust than `debug_rnn_grad.py`'s existing `sys.path.append(os.getcwd())` pattern,
+  which depends on being invoked with the repo root as cwd — left that file's approach alone since it
+  already works and wasn't broken by the move). Verified by actually running both from their new
+  location: `debug_rnn_grad.py` passed both its sparse-gradient and agent-loop-simulation checks
+  unchanged; `tune_direction_threshold.py` built the real 138,584-node FLYNN connectome cell, ran a
+  246-step episode, and regenerated `direction_tuning_plot.png` successfully. Confirmed the output plot
+  still saves to wherever the script is *run from* (a plain relative path, not `__file__`-relative), so
+  this move doesn't change §2e row 5's still-open question about that file's own location.
+
+- **§2e row 5 resolved (author decision: keep).** Added a `!direction_tuning_plot.png` exception to
+  `.gitignore` (same pattern already used for `bar_*.png`/`spl_*.png` in §2b) and staged the file.
+  Verified with `git check-ignore`/`git add`/`git status` that it's now trackable. Left its actual
+  location alone (still saves to wherever `tests/tune_direction_threshold.py` is run from) — only its
+  git-tracked status changed, not where it lives.
+
+- **§2e's last row resolved: wrote `README.md`, `LICENSE`, `requirements.txt`.** Asked before picking a
+  license (a real legal decision, not something to infer) — you chose MIT. Derived `requirements.txt`
+  entirely from actually grepping every tracked `.py` file's `import`/`from` statements (including
+  function-local imports like `analysis_pca_statistics.py`'s deferred `import seaborn`), not from
+  memory or assumption — found `torch`, `torchvision`, `numpy`, `scipy`, `pandas`, `scikit-learn`,
+  `mujoco`, `gymnasium`, `glfw`, `opencv-python`, `matplotlib`, `seaborn`, `networkx`, and
+  `python-louvain` (imported as `community`), each pinned to this dev machine's actually-installed
+  version. `README.md` covers repo structure, setup, the still-unhosted data/checkpoint situation
+  (§2c), and usage for every training/eval/analysis script. The citation's author list/venue are a
+  best-effort guess (venue inferred from the `Publications/IROS2026/` path already referenced
+  elsewhere in the repo; author from git config/email) — **explicitly flagged with an inline TODO** in
+  the file rather than presented as confirmed fact, since I have no reliable source for the exact
+  author list.
+  **Found along the way, not previously classified anywhere in §2**: `analysis_pca.py` — a real,
+  tracked, distinct script from `analysis_pca_statistics.py` (does basic PCA trajectory visualization
+  from saved hidden-state `.npy` files, rather than the KDE/vector-arithmetic analysis). It has the
+  same hardcoded-personal-path issue already fixed elsewhere (`NPY_DIR` points at
+  `D:\Benquan\...\Publications\IROS2026\materials\PCA\connectome2`). This was already visible in §2c's
+  external-archive mention but never given its own §2 row — flagging here rather than silently folding
+  it into README's file listing without disclosure. Not fixed or reclassified in this pass (out of
+  scope for "write README/LICENSE/requirements.txt"); worth a follow-up decision like the other
+  path-placeholder files.
+
 ---
 
 ## 0. TL;DR
@@ -257,25 +555,42 @@ file-classification calls below only make sense once you know about them.
 | `models/__init__.py`, `connectome_rnn_model.py`, `teacher_analytic_model.py` | FLYNN's core RNN cell + custom sparse autograd / teacher's path-follow controller |
 | `train_connectome_rnn_dagger.py` | FLYNN/SmallWorldNet DAgger training (hyperparameters now match the paper — §1.2 resolved) |
 | `train_visionnet_dagger.py` | EfficientNet/MobileNet DAgger + camera-dropout training (matches paper exactly) |
-| `run_connectome_rnn_checkpoint.py`, `run_vision_agent_checkpoint.py` | eval rollouts → `eval_data/`, Table I source, PCA hidden-states source |
+| `run_vision_agent_checkpoint.py` | eval rollouts → `eval_data/`, Table I source (checkpoint-CLI fix — §1.6 resolved, committed) |
+| `run_connectome_rnn_checkpoint.py` | eval rollouts across all 4 vision conditions → `eval_data/`, Table I source (checkpoint-CLI fix, `cv2` soft-import fix, all 4 vision conditions uncommented — see Progress log; moved here from 2a-caveat, not yet committed) |
 | `shared_config.py` | shared paths/hyperparameters (now defaults to FLYNN — §1.1 resolved) |
 | `test_vfhplus.py` | sanity-check tool for the VFH*+PID teacher, worth keeping even with 0 importers |
-| `analysis_pca_statistics.py` | the actual KDE + `BF≈BL+BR` vector-arithmetic analysis in the paper |
-| `collision_statistics.py`, `count_collisions.py`, `compare_trajectories.py`, `visualize_episodes.py` | Table I metrics + trajectory/bar-chart figures |
+| `collision_statistics.py` | Table I metrics + root-level bar-chart figures (§1.4 resolved, committed) |
+| `analysis_pca_statistics.py` | the actual KDE + `BF≈BL+BR` vector-arithmetic analysis in the paper. `CONDITION_FOLDERS` now uses a generic `path_to\eval_data\...` placeholder template instead of a hardcoded personal absolute path — accepted as resolved by author (see Progress log); running it still requires substituting a real path (the `assert os.path.isdir(folder)` will fire otherwise), which is expected/by-design for a template, not a bug. |
+| `count_collisions.py` | Table I collision-count augmentation. Active folder list in `__main__` points at `eval_data/*_textured_env` folders that don't exist yet — accepted as-is by author (see Progress log): reflects an in-progress/future experiment naming, not a defect to fix. |
+| `visualize_episodes.py` | Per-episode trajectory plots. Debug filter removed and docstring added (see Progress log); `target_dir` still points at a not-yet-existing `eval_data/small_world_textured_env` folder, but accepted as-is by author for the same reason as `count_collisions.py` above — reflects an in-progress/future experiment, not a defect. |
+| `compare_trajectories.py` | The PCA/KDE trajectory-comparison figures. `BASE_DIR` now uses a generic `path_to\trajectories` placeholder template instead of a hardcoded personal absolute path — accepted as resolved by author (see Progress log), same reasoning as `analysis_pca_statistics.py` above. |
 
-### 2b. Needed, but wrongly excluded by `.gitignore` today
+**2a-caveat is now empty** — all 5 files originally flagged there (`run_connectome_rnn_checkpoint.py`,
+`analysis_pca_statistics.py`, `count_collisions.py`, `visualize_episodes.py`, `compare_trajectories.py`)
+have been resolved or accepted as-is and folded back into the table above; see the Progress log for the
+full history of each.
+
+### 2b. Needed, was wrongly excluded by `.gitignore` — **FIXED, staged (not yet committed)**
+
+`.gitignore` now carries explicit `!`-exceptions for every path below (§3), and all 30 files are
+currently `git add`-staged (§3/§2b Progress log entries) — verified via `git status --short` to be
+exactly this set, nothing more. Still needs an actual commit (your call on branch/PR).
 
 | Path | Size | Why it's needed |
 |---|---|---|
-| `environment/textures/{ground,wall,obstacle,skybox}.png` | ~3.4MB total | Sim assets for the now-separate `mujoco_model_random_obstacles_realistic.xml` (§1.3 resolved), not result figures — caught by the blanket `*.png` rule. |
-| `connectomes/.../JO-C_and_JO-E.csv`, `consolidated_cell_types.csv`, `descending_neurons.csv`, `head_bristles_{left,right}.csv`, `visual_column_L1_L2_L3_rear_view_{left,right}.csv` (both the adult-connectome and ws_small_world copies) | all <4MB | Small per-modality neuron ID CSVs the model actually loads (wind/tactile/vision/motor/cell-type). Caught by the blanket `connectomes/`+`*.csv` rules. |
-| `connectomes/ws_small_world/generate_ws_network_new.py` | 36KB | The actual SmallWorldNet generator (paper §III-C-2) — currently sits inert inside a fully-gitignored folder. Both the weight-column gap and the input-path bug are now fixed (see Progress log / §1.5) — Step 1 verified to run against the real data. |
-| `bar_average_speed.png`, `bar_average_spl.png`, `bar_average_spl_success.png`, `bar_collisions.png`, `bar_success_rate.png`, `bar_time_to_goal.png`, `spl_accumulated_histograms.png`, `spl_histograms.png`, `spl_violin_plots.png` | ~1.9MB | The actual paper bar-chart/SPL figures — caught by the blanket `*.png` rule. Fix §1.4 first, then regenerate. |
-| `collision_statistics.csv`, `collision_statistics_checker_texture.csv` | <2KB each | The literal numeric source of Table I — caught by the blanket `*.csv` rule. |
+| `environment/textures/{ground,wall,obstacle,skybox}.png` | 3.4MB total | Sim assets for the now-separate `mujoco_model_random_obstacles_realistic.xml` (§1.3 resolved), not result figures — was caught by the old blanket `*.png` rule. |
+| `connectomes/.../JO-C_and_JO-E.csv`, `consolidated_cell_types.csv`, `descending_neurons.csv`, `head_bristles_{left,right}.csv`, `visual_column_L1_L2_L3_rear_view_{left,right}.csv` (both the adult-connectome and ws_small_world copies, 14 files) | 6.1MB total, largest single file 3.7MB (`consolidated_cell_types.csv`, adult connectome) | Small per-modality neuron ID CSVs the model actually loads (wind/tactile/vision/motor/cell-type). Was caught by the old blanket `connectomes/`+`*.csv` rules. |
+| `connectomes/ws_small_world/generate_ws_network_new.py` | 40KB | The actual SmallWorldNet generator (paper §III-C-2) — was sitting inert inside a fully-gitignored folder. Both the weight-column gap and the input-path bug are now fixed (see Progress log / §1.5) — Step 1 verified to run against the real data. |
+| `bar_average_speed.png`, `bar_average_spl.png`, `bar_average_spl_success.png`, `bar_collisions.png`, `bar_success_rate.png`, `bar_time_to_goal.png`, `spl_accumulated_histograms.png`, `spl_histograms.png`, `spl_violin_plots.png` | 1.7MB total | The actual paper bar-chart/SPL figures — was caught by the old blanket `*.png` rule. Regenerated per §1.4 (5 of 6 bar charts + all 3 SPL plots now genuinely reflect the checkerboard condition; `bar_time_to_goal.png` remains the one documented gap from §1.4). |
+| `collision_statistics.csv`, `collision_statistics_checker_texture.csv` | 4KB each | The literal numeric source of Table I — was caught by the old blanket `*.csv` rule. |
 
-**Fix**: add explicit `!`-exceptions for these paths (or move final figures/summary CSVs into a
-dedicated `figures/`/`results/` directory with its own exception), rather than removing the blanket
-rules entirely — the blanket rules are doing real work for the big data/output directories.
+Total staged: **10.9MB** across 30 files (measured per-file with `du`, not the earlier progress-log
+estimate of "6.9MB" — that number was wrong, an artifact of a shell quoting issue in the verification
+command with a space-containing path; corrected here and in the Progress log).
+
+Not part of this set (a decision still open, not a §2b item): `connectomes/drosophila adult
+connectome/data source.txt`, which also now surfaces as untracked as a side effect of the same
+`.gitignore` fix — see §3's Progress log entry.
 
 ### 2c. Needed, but too large to commit to git directly — external hosting
 
@@ -285,7 +600,7 @@ rules entirely — the blanket rules are doing real work for the big data/output
 | `connectomes/ws_small_world/connections_ws_small_world.csv` | 169MB | Now fully regeneratable from `generate_ws_network_new.py` (§1.5 resolved) instead of needing external hosting — it's synthetic data with a fixed seed, no license issue. A fresh run won't be bit-identical to the current file (see Progress log caveat), so decide whether to keep the current file as an archived/pinned version or regenerate and treat the new run as canonical. |
 | `checkpoints/*.pt` (final models only — see below) | 1.4GB total | Zenodo/HuggingFace/institutional storage + download script, so Table I is reproducible without a full retrain. |
 
-For `checkpoints/`, not all 16 files are equally necessary — recommend hosting only:
+For `checkpoints/`, not all 15 files are equally necessary — recommend hosting only:
 `connectome_rnn_dagger_iter_4.pt` (or whichever is FLYNN's final), `connectome_rnn_dagger_princeton*.pt`
 (confirm which one is "the" FLYNN checkpoint used for Table I), `connectome_rnn_dagger_small_world_full_vision.pt`,
 `efficientnet_dagger_final_{full_vision,robust}.pt`, `mobilenet_dagger_final_{full_vision,robust}.pt`.
@@ -297,45 +612,56 @@ The `iter_1..3.pt` intermediates, the `princeton`/`princeton_2`/`princeton_3` re
 aggregates. It's regeneratable (re-run the eval scripts against the hosted checkpoints), and I found
 that the specific data behind the PCA/KDE/trajectory figures is *already* separately archived outside
 both git and `eval_data/` (an external `Publications/IROS2026/materials/` folder `analysis_pca.py`
-and `visualize_episodes.py` already point at). Recommend: don't try to publish 83GB; just make sure
+and `compare_trajectories.py` already point at). Recommend: don't try to publish 83GB; just make sure
 that external archive is complete, and let `collision_statistics.csv`/`collision_statistics_checker_texture.csv`
 (§2b) be the citable aggregate.
 
-### 2d. Safe to remove — confirmed dead, superseded, or unrelated to the paper
+### 2d. Safe to remove — confirmed dead, superseded, or unrelated to the paper — **EXECUTED**
 
-| Path | Why |
-|---|---|
-| `models/connectome_rnn_model_no custom autograd.py` | Unreferenced pre-optimization snapshot of `connectome_rnn_model.py` (predates the custom sparse-autograd backward pass); non-importable filename (has a literal space) confirms it was never meant to be loaded. |
-| `connectomes/ws_small_world/generate_ws_network.py` (the older, non-`_new` file) | Superseded by `generate_ws_network_new.py`: mtimes show the `_new` version is what actually produced the current SmallWorldNet data, and only it generates `consolidated_cell_types.csv` (the older file never did, at all). Keeping both invites a reader to run the wrong one. |
-| `train_connectome_rnn_rl.py`, `run_critic_warmup.py` | Abandoned PPO/critic training path for the connectome RNN. Not mentioned anywhere in the paper (only DAgger is described). Both are currently broken as committed (`build_connectome_cell()` unpacking mismatch — 3 vs. 4 return values). Removing them only requires deleting one import line + unused kwargs from `run_connectome_rnn_checkpoint.py`/`run_critic_warmup.py`'s two dependents. |
-| `MUJOCO_LOG.TXT` | Auto-generated MuJoCo physics-instability warning log from a past debugging session; slipped past `.gitignore`'s `*.log` rule because it's `*.TXT`. Not source, not read by anything. |
-| `connectomes/drosophila adult connectome/parquet_to_csv.py`, `Connectivity_783.csv`, `Connectivity_783.parquet.png` | Superseded, numerically incompatible earlier connectome import (different index space, ~15M edges vs. the paper's reported 5,342,445 — not just a reformat of the same data). Nothing reads it. |
-| `connectomes/drosophila adult connectome/connections_princeton_random.csv` | Fully regeneratable (via `scripts/create_random_connectome.py`, seed=42), 276MB, referenced only by commented-out code. No reason to store/host the generated CSV. |
-| `connectomes/drosophila adult connectome/photoreceptors_pos_{left,right}.csv`, `moonwalker_neurons.csv`, `olfactory_ORN_DM1_{left,right}.csv` | Raw R1-6 photoreceptor / moonwalker / olfactory data explicitly superseded per your own dev log ("Ditched R1-6 input... SOLUTION: ...L1-3 input") and the paper's own stated rationale. Zero live references; incompatible column schema with the current loader anyway. |
-| `connectomes/c.elegans connectome/` (entire folder, ~423KB) | Unrelated dataset; zero references anywhere in any `.py` file, tracked or not; the paper never mentions C. elegans. |
-| `connectomes/drosophila larva connectome/` (entire folder, ~31MB) | Same — unrelated, unreferenced, predates even the unrelated "CNS project" log entries. |
-| `backups/` (10 dated snapshot folders, 299MB) | Ad hoc whole-repo snapshots from Oct 2025–Jan 2026, all superseded by tracked code and predating even the paper-relevant portion of the dev log. **Caveat**: the repo's first git commit is 2026-02-12, *after* every backup folder's date — so git history does *not* actually preserve this period. Recommend archiving privately outside the repo (zip to institutional storage) rather than hard-deleting, purely so you don't lose ~3.5 months of provenance; it should not ship in the public release either way. |
-| `loss/` (409KB) | Pure training-loss byproduct, regenerated fresh on every run, not read by anything, no paper figure is a loss curve. |
-| `tests/` (empty dir) | Empty, unreferenced (its one historical occupant, `test_dagger_buffer.py`, tested a since-renamed/removed class and was already deleted intentionally in an earlier commit). |
-| `collision_statistics 1.csv`, `collision_statistics_2_old_crnn.csv`, `collision_statistics_real_textured.csv` | Superseded duplicates of `collision_statistics.csv`/`collision_statistics_checker_texture.csv` (identical data, missing later-added columns, or referencing an abandoned checkpoint-selection sweep). |
+Every row below has been acted on (see Progress log for the full account, including a correction —
+`loss/keep/` — caught mid-cleanup). Tracked files were `git rm`'d (reversible via git history, not yet
+committed); untracked disk-only data was moved into a new `_pending_deletion/` holding folder rather
+than deleted outright, since nothing backs it up. `backups/` is the one deliberate exception — still
+untouched, per its own row's recommendation.
+
+| Path | Why | Status |
+|---|---|---|
+| `models/connectome_rnn_model_no custom autograd.py` | Unreferenced pre-optimization snapshot of `connectome_rnn_model.py` (predates the custom sparse-autograd backward pass); non-importable filename (has a literal space) confirms it was never meant to be loaded. | `git rm`'d |
+| `connectomes/ws_small_world/generate_ws_network.py` (the older, non-`_new` file) | Superseded by `generate_ws_network_new.py`: mtimes show the `_new` version is what actually produced the current SmallWorldNet data, and only it generates `consolidated_cell_types.csv` (the older file never did, at all). Keeping both invites a reader to run the wrong one. | Untracked — moved to `_pending_deletion/` |
+| `train_connectome_rnn_rl.py`, `run_critic_warmup.py` | Abandoned PPO/critic training path for the connectome RNN. Not mentioned anywhere in the paper (only DAgger is described). Both were broken as committed (`build_connectome_cell()` unpacking mismatch — 3 vs. 4 return values). | `git rm`'d; the one live dangling import (`run_connectome_rnn_checkpoint.py`) fixed by inlining the 3 constants it actually uses |
+| `MUJOCO_LOG.TXT` | Auto-generated MuJoCo physics-instability warning log from a past debugging session; slipped past `.gitignore`'s `*.log` rule because it's `*.TXT`. Not source, not read by anything. | `git rm`'d |
+| `connectomes/drosophila adult connectome/parquet_to_csv.py`, `Connectivity_783.csv`, `Connectivity_783.parquet.png` | Superseded, numerically incompatible earlier connectome import (different index space, ~15M edges vs. the paper's reported 5,342,445 — not just a reformat of the same data). Nothing reads it. | Untracked — moved to `_pending_deletion/` (`Connectivity_783.csv` alone is 239MB, not a few-MB reformat as the size estimate here implied) |
+| ~~`connectomes/drosophila adult connectome/connections_princeton_random.csv`~~ | Fully regeneratable (via `scripts/create_random_connectome.py`, seed=42), 276MB, referenced only by commented-out code. No reason to store/host the generated CSV. | **DELETED (§2e row 3, author decision)** — permanently removed from `_pending_deletion/`, not just moved there anymore. |
+| `connectomes/drosophila adult connectome/photoreceptors_pos_{left,right}.csv`, `moonwalker_neurons.csv`, `olfactory_ORN_DM1_{left,right}.csv` | Raw R1-6 photoreceptor / moonwalker / olfactory data explicitly superseded per your own dev log ("Ditched R1-6 input... SOLUTION: ...L1-3 input") and the paper's own stated rationale. Zero live references; incompatible column schema with the current loader anyway. | Untracked — moved to `_pending_deletion/` |
+| `connectomes/c.elegans connectome/` (entire folder, ~423KB) | Unrelated dataset; zero references anywhere in any `.py` file, tracked or not; the paper never mentions C. elegans. | Untracked — moved to `_pending_deletion/` |
+| `connectomes/drosophila larva connectome/` (entire folder, ~31MB) | Same — unrelated, unreferenced, predates even the unrelated "CNS project" log entries. | Untracked — moved to `_pending_deletion/` |
+| `backups/` (12 dated snapshot folders, 299MB) | Ad hoc whole-repo snapshots from Oct 2025–Jan 2026, all superseded by tracked code and predating even the paper-relevant portion of the dev log. **Caveat**: the repo's first git commit is 2026-02-12, *after* every backup folder's date — so git history does *not* actually preserve this period. Recommend archiving privately outside the repo (zip to institutional storage) rather than hard-deleting, purely so you don't lose ~3.5 months of provenance; it should not ship in the public release either way. | **Not touched** — needs an external archive destination decided first, deliberately out of scope here |
+| `loss/` **except** `loss/keep/` (409KB total, minus whatever `keep/`'s 3 PNGs weigh) | Pure training-loss byproduct, regenerated fresh on every run, not read by anything, no paper figure is a loss curve. | Untracked — moved to `_pending_deletion/`, **except `loss/keep/`** (`connectome princetion.png`, `full_model.png`, `random_connectome.png`), which turned out to be hand-curated and was restored in place — see Progress log correction. Two more "keep"-named paths exist (`checkpoints/keep/`, currently empty; `backups/20251223_teacher_mlp/checkpoints/keep`) — neither in the original plan, both left untouched. |
+| `tests/` (empty dir) | Empty, unreferenced (its one historical occupant, `test_dagger_buffer.py`, tested a since-renamed/removed class and was already deleted intentionally in an earlier commit). | Removed (`rmdir`; was untracked and confirmed empty, nothing lost) |
+| `collision_statistics 1.csv`, `collision_statistics_2_old_crnn.csv`, `collision_statistics_real_textured.csv` | Superseded duplicates of `collision_statistics.csv`/`collision_statistics_checker_texture.csv` (identical data, missing later-added columns, or referencing an abandoned checkpoint-selection sweep). | Untracked — moved to `_pending_deletion/` |
 
 ### 2e. Needs your decision — I can't resolve these from the code alone
 
 | Path | The question |
 |---|---|
-| `test_verification_data/obstacles_1.txt` (+ its untracked siblings `trajectory_1.csv`, `activity_1.csv`) | Looks like a hand-saved early episode snapshot for regression testing, but nothing loads it today and its `trajectory_1.csv` schema (`step,x,y`, no `collision` column) predates `count_collisions.py`'s current requirements. Restore a deterministic-replay consumer, or drop it as a stale fixture? |
-| `agents/dual_backbone_agent.py` | Genuinely wired into `run_vision_agent_checkpoint.py`/`train_visionnet_dagger.py` (removing it breaks both scripts), but no checkpoint for it ever completed training, and the paper's Section III-C text describes only the single-shared-backbone design. Recommend: keep the file (don't break the two scripts), but add a one-line comment marking it an incomplete/unused ablation so a reader doesn't assume it produced the reported baseline numbers. |
-| `scripts/create_random_connectome.py` (+ its output, already listed for removal in §2d) | Real experiment (a checkpoint exists: `connectome_rnn_dagger_princeton_random_full_vision.pt`), but not the paper's reported SmallWorldNet baseline (that's the separate Watts-Strogatz control). Keep with a clarifying comment (early/discarded ablation), or delete? |
-| `tune_direction_threshold.py`, `debug_rnn_grad.py` | Legitimate dev tools (threshold-tuning plot, gradient-correctness sanity check for the custom sparse autograd) but not required to reproduce any reported number. `tune_direction_threshold.py` is now fixed and runnable again (§1.7). Keep as documentation/tests (maybe move into a `tests/`/`tools/` folder), or drop? |
-| `direction_tuning_plot.png` | Output of `tune_direction_threshold.py` above — same call. |
-| README.md / LICENSE / `requirements.txt` (or `environment.yml`) / citation file | None exist anywhere in the repo (checked every subfolder, not just root). Not a per-file classification question — these need to be authored before public release: setup instructions (MuJoCo/torch/opencv/pandas/numpy/scipy/matplotlib/networkx/python-louvain), a license (relevant since this wraps FlyWire.ai connectome data), and a citation/BibTeX entry for the paper. |
+| ~~`test_verification_data/obstacles_1.txt` (+ its untracked siblings `trajectory_1.csv`, `activity_1.csv`)~~ | **RESOLVED (dropped).** Deleted all 3 files per author decision (`git rm` for the tracked `obstacles_1.txt`; plain `rm` for the untracked `trajectory_1.csv`/`activity_1.csv`, which had no git history to lose). The now-empty `test_verification_data/` directory was removed too. |
+| ~~`agents/dual_backbone_agent.py`~~ | **RESOLVED (dropped) — author decision.** Deleted the file (`git rm`) and removed every dependency on it in its two call sites: `train_visionnet_dagger.py` (the `"dual_efficientnet"`/`"dual_mobilenet"` `AGENT_REGISTRY` entries, the `preprocess_obs_cpu_dual()` function, all `is_dual` branching in `rollout_and_collect_balanced()` and `apply_camera_dropout()`, and a now-dead `backbone_type` kwarg branch) and `run_vision_agent_checkpoint.py` (the `preprocess_obs_cpu_dual()` function, all `is_dual` branching in `run_episode()`, the `dual_efficientnet`/`dual_mobilenet` cases in `_detect_model_type()`/`_build_agent()`, and the corresponding `--model-type` CLI choices). See Progress log for verification detail. |
+| ~~`scripts/create_random_connectome.py` (+ its output, already listed for removal in §2d)~~ | **RESOLVED (dropped) — author decision.** Deleted the script (`git rm`; the now-empty `scripts/` directory was removed too) and permanently deleted its output CSV (previously just moved to `_pending_deletion/` during §2d — now actually removed from there). Cleaned up the two dangling commented-out references to the deleted CSV path in `shared_config.py` and `run_connectome_rnn_checkpoint.py` (left the still-relevant `connectome_rnn_dagger_princeton_random_full_vision.pt` **checkpoint** reference comment alone — that trained checkpoint wasn't part of this request and isn't deleted). Confirmed via `grep` that no `.py` file outside `backups/` references `create_random_connectome`/`connections_princeton_random` anymore. |
+| ~~`tune_direction_threshold.py`, `debug_rnn_grad.py`~~ | **RESOLVED (moved) — author decision.** Both moved into a new `tests/` directory (`git mv`, preserving history) — the same `tests/` folder §2d's Progress log removed as empty; this reintroduces it with real content. `tune_direction_threshold.py` imported repo-root modules with no package prefix (`from train_connectome_rnn_dagger import ...`), which broke once it moved out of the repo root (`ModuleNotFoundError`, confirmed by actually running it); fixed with a `sys.path.insert` based on `__file__`'s parent directory, so it resolves the repo root regardless of the caller's cwd. `debug_rnn_grad.py` already had an equivalent `sys.path.append(os.getcwd())` fix from before and needed no changes. Both verified by actually running them from their new location — see Progress log. |
+| ~~`direction_tuning_plot.png`~~ | **RESOLVED (kept) — author decision.** Added a `!direction_tuning_plot.png` exception to `.gitignore` (same pattern as §2b's `bar_*.png`/`spl_*.png`) and staged the file. Still saves to wherever `tests/tune_direction_threshold.py` is run from (repo root, in the verified case from §2e row 4) — this only changes whether it's tracked, not where it lives. |
+| ~~README.md / LICENSE / `requirements.txt` / citation file~~ | **RESOLVED (written) — author decision: MIT license.** `requirements.txt` lists every third-party package actually imported anywhere in the tracked codebase (verified by grepping every tracked `.py` file for `import`/`from` statements, not guessed from memory), pinned to the versions tested on this dev machine, with a note about installing a CUDA-matched `torch`/`torchvision` build. `LICENSE` is MIT (your choice — asked rather than picked unilaterally, since it's a legal decision with real consequences and interacts with the still-open FlyWire.ai data-terms question in §2c). `README.md` covers the repo structure, setup, the (still-unhosted, see §2c) data/checkpoint situation, and usage for every training/eval/analysis script. Citation section has a placeholder BibTeX (title confirmed from the paper; venue inferred as IROS 2026 from the `Publications/IROS2026/` path referenced elsewhere in the repo; author list is a guess from git config/email — **flagged inline in the file with a TODO to confirm before publishing**, not asserted as fact). |
 
 ---
 
-## 3. Suggested `.gitignore` rewrite (after resolving §2e's texture-file decision)
+## 3. `.gitignore` rewrite — **APPLIED**
 
-Keep the blanket exclusions for genuinely-bulk/output directories, but carve out the specific
-assets/scripts/summaries identified in §2b:
+**Status: done.** (The texture/xml decision this used to be gated on was §1.3, not §2e as an earlier
+draft of this heading said — that's resolved too, see Progress log.) Keeps the blanket exclusions for
+genuinely-bulk/output directories, but carves out the specific assets/scripts/summaries identified in
+§2b. Applied to the actual `.gitignore` and independently verified with `git check-ignore -v` and
+`git status --short --untracked-files=all` — see the Progress log entry for the ordering bug that check
+caught (a later blanket `*.csv` rule was silently re-ignoring the earlier connectome-CSV exceptions) and
+exactly how it was fixed:
 
 ```gitignore
 __pycache__/
@@ -344,6 +670,8 @@ __pycache__/
 build/
 dist/
 *.log
+*.pdf
+*.jpg
 MUJOCO_LOG.TXT
 
 # Model checkpoints (host externally, see CLEANUP_PLAN.md §2c)
@@ -360,7 +688,20 @@ eval_data/
 loss/
 performance_results/
 
-# Connectome data: ignore big raw edge lists, keep small metadata + scripts
+# Result figures: ignore stray CSV/PNG dumps, keep the final published ones
+*.csv
+!collision_statistics.csv
+!collision_statistics_checker_texture.csv
+*.png
+!environment/textures/*.png
+!bar_*.png
+!spl_*.png
+!direction_tuning_plot.png
+
+# Connectome data: ignore big raw edge lists, keep small metadata + scripts.
+# This block must come AFTER the generic *.csv rule above -- gitignore resolves
+# overlapping patterns by last-match-wins, so if the blanket *.csv rule came last
+# it would silently re-ignore the connectome exceptions below.
 connectomes/**/*.csv
 !connectomes/**/JO-C_and_JO-E.csv
 !connectomes/**/consolidated_cell_types.csv
@@ -371,18 +712,17 @@ connectomes/**/*.py
 !connectomes/ws_small_world/generate_ws_network_new.py
 connectomes/c.elegans connectome/
 connectomes/drosophila larva connectome/
-
-# Result figures: ignore stray CSV/PNG dumps, keep the final published ones
-*.csv
-!collision_statistics.csv
-!collision_statistics_checker_texture.csv
-*.png
-!environment/textures/*.png
-!bar_*.png
-!spl_*.png
 ```
 
-(Git ignore-exception ordering matters — double-check with `git check-ignore -v <path>` after editing.)
+Verified via `git status --short --untracked-files=all` that exactly the 31 files listed in the Progress
+log now show up as untracked (ready for `git add`) — the §2b set plus one unplanned but seemingly-benign
+extra, `connectomes/drosophila adult connectome/data source.txt` — and that everything meant to stay
+ignored (the 261MB `connections_princeton.csv`, the superseded `generate_ws_network.py`, the
+`performance_results/*/bar_*.png` backup copies, the 3 superseded `collision_statistics*.csv` duplicates)
+still does.
+
+**Not done**: `git add`-ing these newly-visible files and committing them — that's §4 step 3 below, not
+yet executed.
 
 ---
 
@@ -398,17 +738,29 @@ connectomes/drosophila larva connectome/
    fix properly — your call whether/when to do that. `performance_results/checker_texure/` and the
    new `performance_results/textured_env/` backup are both worth keeping as provenance for now
    rather than retiring either.
-3. Apply the `.gitignore` rewrite (§3), `git add` the newly-un-ignored files from §2b, and verify
-   `git status` shows exactly the expected new tracked files (nothing from `checkpoints/`/`eval_data/`/
-   `connections_princeton.csv` should appear).
-4. `git rm` the confirmed-dead tracked file: `models/connectome_rnn_model_no custom autograd.py`,
-   `train_connectome_rnn_rl.py`, `run_critic_warmup.py`, `MUJOCO_LOG.TXT` — and fix the two now-dangling
-   import lines in `run_connectome_rnn_checkpoint.py` (imports 5 unused constants from
-   `train_connectome_rnn_rl.py`) accordingly.
-5. Delete (not git-tracked, just disk cleanup) the confirmed-dead untracked data:
-   `connectomes/c.elegans connectome/`, `connectomes/drosophila larva connectome/`,
-   `connectomes/drosophila adult connectome/{parquet_to_csv.py,Connectivity_783.csv,Connectivity_783.parquet.png,connections_princeton_random.csv,photoreceptors_pos_left.csv,photoreceptors_pos_right.csv,moonwalker_neurons.csv,olfactory_ORN_DM1_left.csv,olfactory_ORN_DM1_right.csv}`,
-   `loss/`, `tests/`, the 3 superseded `collision_statistics*.csv` variants.
+3. ~~Apply the `.gitignore` rewrite (§3) and `git add` the newly-un-ignored files~~ **Done** — see
+   Progress log (including a real ordering bug found and fixed in the `.gitignore` along the way). All
+   30 §2b files are staged; `git status` confirms nothing from `checkpoints/`/`eval_data/`/
+   `connections_princeton.csv` leaked in. Still open: actually committing the staged files (your call
+   on which branch/PR), and deciding on the one extra untracked file this turned up,
+   `connectomes/drosophila adult connectome/data source.txt` (not part of §2b, see §3's Progress log
+   entry).
+4. ~~`git rm` the confirmed-dead tracked files and fix the resulting dangling import~~ **Done** — see
+   Progress log/§2d. `models/connectome_rnn_model_no custom autograd.py`, `train_connectome_rnn_rl.py`,
+   `run_critic_warmup.py`, `MUJOCO_LOG.TXT` are all `git rm`'d (staged, not committed);
+   `run_connectome_rnn_checkpoint.py`'s dangling import was fixed by inlining the 3 constants it
+   actually needed.
+5. ~~Delete (not git-tracked, just disk cleanup) the confirmed-dead untracked data~~ **Done, but as a
+   move rather than a delete** — see Progress log/§2d. All of it (`connectomes/c.elegans connectome/`,
+   `connectomes/drosophila larva connectome/`, the listed `drosophila adult connectome/` files, most of
+   `loss/`, the 3 superseded `collision_statistics*.csv` variants) now sits in a new `_pending_deletion/`
+   holding folder (gitignored) instead of being permanently removed, since none of it is backed by
+   git — your call whether/when to actually delete it for good (§2e row 3's `connections_princeton_random.csv`
+   has since actually been deleted from this folder for good, not just moved). One correction along the
+   way: `loss/keep/` was NOT moved (see §2d) — it turned out to be a deliberately-preserved subfolder,
+   not dead data. The empty `tests/` (untracked, confirmed empty) was `rmdir`'d directly rather than
+   moved — it has since been recreated with real content (§2e row 4: `tune_direction_threshold.py`,
+   `debug_rnn_grad.py`).
 6. Archive `backups/` and (post-verification) the bulk of `eval_data/` to external/institutional
    storage rather than deleting outright, then remove from the working copy.
 7. Decide whether to trigger a full `generate_ws_network_new.py` run now that §1.5 is fixed (this
