@@ -53,7 +53,12 @@ connectomes/             Connectome data. Small per-modality neuron-ID CSVs and 
                          are not -- see Data below.
 tests/                   Dev/diagnostic tools: gradient-correctness sanity check for the custom
                          sparse autograd (debug_rnn_grad.py), turn-vs-straight threshold tuning
-                         (tune_direction_threshold.py)
+                         (tune_direction_threshold.py), VFH*+PID teacher sanity check
+                         (test_vfhplus.py)
+tools/                   Post-hoc analysis/aggregation scripts that consume eval_data/ rollout
+                         output: collision_statistics.py, count_collisions.py,
+                         compare_trajectories.py, visualize_episodes.py,
+                         analysis_pca_statistics.py, analysis_pca.py
 
 shared_config.py         Shared paths/hyperparameters for the FLYNN/SmallWorldNet training and
                          eval scripts. Defaults to FLYNN; see the comment at the top to switch to
