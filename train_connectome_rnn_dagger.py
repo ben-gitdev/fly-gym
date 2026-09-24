@@ -65,6 +65,19 @@ EPISODES_PER_ITER = 500
 TRAIN_STEPS_PER_ITER = 300
 N_ENVS = 10  # Number of concurrent environments for vectorized rollout
 
+# Seed for env i is TRAIN_ENV_SEED_BASE + i.  run_connectome_rnn_checkpoint.py evaluates
+# on seeds 1..EVAL_EPISODES (500), so this base sits far above that range: the training
+# and evaluation layouts are provably disjoint rather than just improbable to collide.
+# Previously envs were built with seed=None (OS entropy), which made the held-out claim
+# unauditable and training runs non-reproducible.
+TRAIN_ENV_SEED_BASE = 100_000
+
+# Seed for the global RNGs: numpy drives noise injection and the balanced buffer's
+# sampling, torch drives weight init and the spectral-radius power iteration in
+# build_connectome_cell().  Set in main() before anything else so a run is reproducible
+# end to end.  Independent of TRAIN_ENV_SEED_BASE, which only controls env layouts.
+TRAIN_SEED = 0
+
 BATCH_SIZE = 64
 GRAD_ACCUM_STEPS = 2  # Number of mini-batches to accumulate before optimizer step (BATCH_SIZE*GRAD_ACCUM_STEPS=128, matches paper)
 
@@ -966,6 +979,10 @@ def train_step(agent, buffer, opt, accum_steps=GRAD_ACCUM_STEPS):
 
 
 def main():
+    np.random.seed(TRAIN_SEED)
+    torch.manual_seed(TRAIN_SEED)
+    torch.cuda.manual_seed_all(TRAIN_SEED)
+
     device = get_device()
     dtype = DTYPE
     print(f"[device] Using {device} ({dtype})")
@@ -1010,7 +1027,8 @@ def main():
             print(f"[ckpt] Warning: Checkpoint not found at {RESUME_CHECKPOINT_PATH}, starting from scratch")
 
     # Create N_ENVS environments and teachers
-    envs = [_make_env(render_mode=RENDER_MODE if i == 0 else None)
+    envs = [_make_env(render_mode=RENDER_MODE if i == 0 else None,
+                      seed=TRAIN_ENV_SEED_BASE + i)
             for i in range(N_ENVS)]
     teachers = [_make_teacher() for _ in range(N_ENVS)]
     print(f"[env] Created {N_ENVS} concurrent environments")
