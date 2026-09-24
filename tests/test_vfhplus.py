@@ -1,7 +1,14 @@
+import os
+import sys
 import numpy as np
 import time
 import cv2
 import mujoco
+
+# This script lives in tests/, but imports repo-root modules directly (no package
+# prefix) -- add the repo root (this file's parent directory) to sys.path so that
+# works regardless of the caller's current working directory.
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from environment.mujoco_two_cam_env_random_obstacles import MuJoCoTwoCamEnv
 from agents.teacher_analytic_agent import PlannerAnalyticTeacher

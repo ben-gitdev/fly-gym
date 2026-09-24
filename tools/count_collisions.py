@@ -11,11 +11,14 @@ import numpy as np
 import math
 import sys
 
-# Add project root to path for imports
-sys.path.append(os.path.dirname(os.path.abspath(__file__)))
+# This script lives in tools/, but imports repo-root modules directly (no package
+# prefix) and reads eval_data/ from the repo root -- resolve the repo root from this
+# file's own location so both work regardless of the caller's current working directory.
+REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, REPO_ROOT)
 from core.astar import AStarGridPlanner, GridSpec
 
-EVAL_DIR = os.path.join(os.path.dirname(__file__), "eval_data", "connectome_full_vision_3")
+EVAL_DIR = os.path.join(REPO_ROOT, "eval_data", "connectome_full_vision_3")
 
 
 def count_collisions(trajectory_path, min_gap=10):
