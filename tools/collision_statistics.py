@@ -14,9 +14,16 @@ from scipy.stats import gaussian_kde
 plt.rcParams["font.family"] = "Times New Roman"
 plt.rcParams["font.size"] = 24
 
-BASE_DIR = os.path.join(os.path.dirname(__file__), "eval_data")
+# This script lives in tools/, but its inputs/outputs (eval_data/, and the collision_statistics.csv/
+# bar_*.png/spl_*.png results) live at the repo root -- anchor to that instead of this file's own
+# directory, regardless of the caller's current working directory.
+REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+RESULTS_DIR = os.path.join(REPO_ROOT, "results")
+os.makedirs(RESULTS_DIR, exist_ok=True)
 
-OUTPUT_CSV = os.path.join(os.path.dirname(__file__), "collision_statistics.csv")
+BASE_DIR = os.path.join(REPO_ROOT, "eval_data")
+
+OUTPUT_CSV = os.path.join(RESULTS_DIR, "collision_statistics.csv")
 
 COLORS = ["#4CAF50", "#2196F3", "#FF9800", "#F44336"]
 folders = sorted(
@@ -147,7 +154,7 @@ def collision_statistics(folders = folders):
                 fig.delaxes(axes[i])
             
         plt.tight_layout()
-        plot_path = os.path.join(os.path.dirname(__file__), "spl_violin_plots.png")
+        plot_path = os.path.join(RESULTS_DIR, "spl_violin_plots.png")
         plt.savefig(plot_path, dpi=300)
         print(f"Saved SPL violin plots to {plot_path}")
         plt.close()
@@ -185,7 +192,7 @@ def collision_statistics(folders = folders):
             axes_hist[-1].set_xlabel("SPL")
             
             plt.tight_layout()
-            hist_plot_path = os.path.join(os.path.dirname(__file__), "spl_histograms.png")
+            hist_plot_path = os.path.join(RESULTS_DIR, "spl_histograms.png")
             plt.savefig(hist_plot_path, dpi=300, bbox_inches='tight')
             print(f"Saved SPL histograms to {hist_plot_path}")
             plt.close()
@@ -219,7 +226,7 @@ def collision_statistics(folders = folders):
             axes_acc[-1].set_xlabel("SPL")
             
             plt.tight_layout()
-            acc_plot_path = os.path.join(os.path.dirname(__file__), "spl_accumulated_histograms.png")
+            acc_plot_path = os.path.join(RESULTS_DIR, "spl_accumulated_histograms.png")
             plt.savefig(acc_plot_path, dpi=300, bbox_inches='tight')
             print(f"Saved SPL accumulated histograms to {acc_plot_path}")
             plt.close(fig_acc)
@@ -240,7 +247,7 @@ def plot_grouped_bars(out_df, output_dir=None):
     already-computed stats CSV via regenerate_bars_from_stats_csv() below, e.g. when the
     raw eval_data folders that produced that CSV have since been deleted/rotated.
     """
-    out_dir = output_dir or os.path.dirname(__file__)
+    out_dir = output_dir or RESULTS_DIR
     models = ["FLYNN", "EfficientNet", "MobileNet", "SmallWorldNet"]
 
     # User defined conditions and order
@@ -411,7 +418,7 @@ if __name__ == "__main__":
     # vision conditions" figure) directly from the already-computed aggregate CSV -- the raw
     # eval_data folders that produced it no longer exist (see regenerate_bars_from_stats_csv's
     # docstring), so this restores the root-level bar_*.png rather than recomputing from scratch.
-    checker_csv = os.path.join(os.path.dirname(__file__), "collision_statistics_checker_texture.csv")
+    checker_csv = os.path.join(RESULTS_DIR, "collision_statistics_checker_texture.csv")
     if os.path.exists(checker_csv):
         regenerate_bars_from_stats_csv(checker_csv)
     else:

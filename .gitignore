@@ -34,15 +34,12 @@ eval_data/
 loss/
 performance_results/
 
-# Result figures: ignore stray CSV/PNG dumps, keep the final published ones
+# Result figures/stats: ignore stray CSV/PNG dumps anywhere else, but track everything
+# under the dedicated results/ folder.
 *.csv
-!collision_statistics.csv
-!collision_statistics_checker_texture.csv
 *.png
 !environment/textures/*.png
-!bar_*.png
-!spl_*.png
-!direction_tuning_plot.png
+!results/**
 
 # Connectome data: ignore big raw edge lists, keep small metadata + scripts.
 # This block must come AFTER the generic *.csv rule above -- gitignore resolves

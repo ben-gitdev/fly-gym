@@ -59,6 +59,9 @@ tools/                   Post-hoc analysis/aggregation scripts that consume eval
                          output: collision_statistics.py, count_collisions.py,
                          compare_trajectories.py, visualize_episodes.py,
                          analysis_pca_statistics.py, analysis_pca.py
+results/                 Result figures/stats produced by tools/collision_statistics.py and
+                         tests/tune_direction_threshold.py: Table I bar charts, SPL distribution
+                         plots, and their aggregate CSVs
 
 shared_config.py         Shared paths/hyperparameters for the FLYNN/SmallWorldNet training and
                          eval scripts. Defaults to FLYNN; see the comment at the top to switch to
