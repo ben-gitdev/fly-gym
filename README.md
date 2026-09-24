@@ -127,26 +127,45 @@ the plain PyPI wheel.
 
 ## Data and checkpoints
 
-Connectome data and trained checkpoints are excluded from version control due to size. The
-connectome's small per-modality CSVs and the SmallWorldNet generator script are tracked under
-`connectomes/`. Not tracked:
+Connectome data and trained checkpoints are excluded from version control due to size, but are hosted
+on Hugging Face:
+**[benquan1/fly-gym-trained-policies](https://huggingface.co/datasets/benquan1/fly-gym-trained-policies)**
+(399MB total, MIT-licensed).
 
-- `connectomes/drosophila adult connectome/connections_princeton.csv` (~261MB) — the real FAFB v783
-  edge list (`pre_root_id`, `post_root_id`, `syn_count` or equivalent aliases), sourced from
+```bash
+git clone https://huggingface.co/datasets/benquan1/fly-gym-trained-policies
+```
+
+What's in it and where each file goes:
+
+- `drosophila adult connectome.7z` (45.1MB) — extract into
+  `connectomes/drosophila adult connectome/` to get `connections_princeton.csv` (~261MB), the real
+  FAFB v783 edge list (`pre_root_id`, `post_root_id`, `syn_count` or equivalent aliases), sourced from
   FlyWire.ai / the `philshiu/Drosophila_brain_model` project (see
   `connectomes/drosophila adult connectome/data source.txt` for provenance).
-- `connectomes/ws_small_world/connections_ws_small_world.csv` (~169MB) — the synthetic SmallWorldNet
-  control edge list. Regeneratable from a fixed seed via
-  `connectomes/ws_small_world/generate_ws_network_new.py`.
-- `connectomes/drosophila adult connectome/visual_column_L1_L2_L3_rear_view_{left,right}.csv`,
-  `head_bristles_{left,right}.csv`, `descending_neurons.csv`, `consolidated_cell_types.csv`,
-  `JO-C_and_JO-E.csv` — small per-modality neuron-ID CSVs (photoreceptor/lamina positions, tactile
-  head bristles, descending/output neurons, cell types, Johnston's organ wind-sensing neurons) *are*
-  tracked and load automatically once the large edge list above is in place.
-- Trained checkpoints (`checkpoints/*.pt`).
+- `ws_small_world_connectome.7z` (53.5MB) — extract into `connectomes/ws_small_world/` to get
+  `connections_ws_small_world.csv` (~169MB), the synthetic SmallWorldNet control edge list.
+  Regeneratable from a fixed seed instead via `connectomes/ws_small_world/generate_ws_network_new.py`.
+- `connectome_rnn_dagger_princeton_full_vision.pt` (108MB) — FLYNN, trained with full vision.
+- `connectome_rnn_dagger_small_world_full_vision.pt` (155MB) — SmallWorldNet control, trained with
+  full vision.
+- `efficientnet_dagger_final_robust.pt` (21.2MB) / `mobilenet_dagger_final_robust.pt` (16MB) — the
+  EfficientNet-B0 / MobileNetV3-Large baselines, trained with camera dropout.
 
-<!-- TODO: host the files above (Zenodo/HuggingFace/institutional storage) and link them here, along
-     with a small download script, so a fresh clone can reproduce Table I without a full retrain. -->
+Each checkpoint above is trained once, on full vision; `run_connectome_rnn_checkpoint.py` and
+`run_vision_agent_checkpoint.py` reproduce all 4 vision-ablation conditions (full / right-eye-only /
+left-eye-only / blind) from that single checkpoint by masking the input at eval time, not by loading a
+separate checkpoint per condition — so these 4 files are enough to reproduce Table I's full sweep, not
+just its full-vision row. Drop them into `checkpoints/` (create the folder if it doesn't already exist)
+and pass the path straight to the eval scripts, e.g.:
+
+```bash
+python run_connectome_rnn_checkpoint.py checkpoints/connectome_rnn_dagger_princeton_full_vision.pt
+```
+
+The connectome's small per-modality CSVs and the SmallWorldNet generator script don't need downloading
+separately — they're already tracked under `connectomes/` here in the repo, and load automatically once
+the corresponding large edge list above is in place.
 
 ## Usage
 
