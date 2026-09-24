@@ -4,9 +4,7 @@ Code accompanying **"FLYNN: Robust Neural Network for Robot Navigation using Fly
 ([arXiv:2607.00025](https://arxiv.org/abs/2607.00025); see [Citation](#citation)).
 
 FLYNN is a recurrent neural network whose connectivity is derived directly from the FlyWire FAFB v783
-*Drosophila* connectome shipped with this repo (138,584 neurons, 5,342,446 synaptic connections —
-counted directly from `connections_princeton.csv` and confirmed by `build_connectome_cell()`'s own
-load log). It's trained with DAgger
+*Drosophila* connectome shipped with this repo. It's trained with DAgger
 imitation learning to drive a two-wheeled, two-camera robot to a goal around randomly placed obstacles
 in a MuJoCo arena, and is benchmarked against a synthetic Watts-Strogatz control network
 ("SmallWorldNet", matched on the connectome's degree/path-length statistics) and two conventional CNN
@@ -25,8 +23,7 @@ vision pipeline.
   pixels are sampled at the real photoreceptor-column positions and passed through a virtual-retina
   model (log transform + high-pass L1/L2 / low-pass L3 filtering) before entering the RNN,
   approximating the fly's early visual processing (photoreceptors -> lamina L1-L3); a fixed set of
-  descending neurons is read out through a small MLP into `[velocity, heading]`. The connectome weight
-  matrix is rescaled to a target spectral radius at load time for stable recurrent dynamics, and a
+  descending neurons is read out through a small MLP into `[velocity, heading]`. A
   custom `MemoryEfficientSparseMM` autograd function (CSR forward pass, cached-COO O(NNZ) backward
   pass) makes training a ~140k-neuron recurrent cell tractable on a single GPU.
 - **Training:** DAgger imitation learning against an analytic **VFH\*** (Vector Field Histogram + A*)
@@ -66,16 +63,6 @@ train_visionnet_dagger.py        DAgger + camera-dropout training for the Effici
                                   baselines
 run_connectome_rnn_checkpoint.py Evaluation rollouts for a trained FLYNN/SmallWorldNet checkpoint
 run_vision_agent_checkpoint.py   Evaluation rollouts for a trained EfficientNet/MobileNet checkpoint
-test_vfhplus.py                  Sanity-check tool for the VFH*+PID teacher
-
-collision_statistics.py  Aggregates raw per-episode eval data into the collision/success-rate/SPL/
-                         speed statistics and bar charts reported in the paper
-count_collisions.py      Per-episode collision/SPL/speed augmentation of raw eval rollout data
-compare_trajectories.py  Trajectory-overlay comparison figures
-visualize_episodes.py    Per-episode top-down trajectory plots (obstacles, path, start/end, target)
-analysis_pca_statistics.py  KDE + vector-arithmetic (full-vision ≈ left-eye + right-eye) analysis
-                             of FLYNN's internal hidden-state trajectories
-analysis_pca.py          PCA visualization of hidden-state trajectories from a single eval run
 ```
 
 ## Models
@@ -100,7 +87,7 @@ it via `BASE_PATH`/`EDGE_PATH` in `shared_config.py`.
 
 ### Vision-CNN baselines (non-connectome)
 
-- **`MobileNetAgent`** (`agents/mobilenet_agent.py`) — ImageNet-pretrained MobileNetV3-Large (first
+- **`MobileNetAgent`** (`agents/mobilenet_agent.py`) — MobileNetV3-Large (first
   conv adapted to 1-channel grayscale, classifier removed) feeding a `GRUCell`, plus wind-direction and
   collision scalars, into a small MLP policy head.
 - **`EfficientNetAgent`** (`agents/efficientnet_agent.py`) — identical scheme with an EfficientNet-B0
@@ -127,17 +114,17 @@ the plain PyPI wheel.
 
 ## Data and checkpoints
 
-Connectome data and trained checkpoints are excluded from version control due to size, but are hosted
+Connectome data and trained checkpoints are hosted
 on Hugging Face:
 **[benquan1/fly-gym-trained-policies](https://huggingface.co/datasets/benquan1/fly-gym-trained-policies)**
-(399MB total). **Licensing there is mixed, not a blanket MIT.** `drosophila adult connectome.7z` is a
+(399MB total). **Licensing there is mixed.** `drosophila adult connectome.7z` is a
 CSV export of the real FlyWire connectome, which FlyWire licenses CC BY-NC 4.0
 (Attribution-NonCommercial) — see `connectomes/drosophila adult connectome/data source.txt` for the
 full attribution notice; that license is not superseded by this repo's own MIT `LICENSE` file. The same
 CC BY-NC 4.0 terms also apply to `connectome_rnn_dagger_princeton_full_vision.pt` (the FLYNN
-checkpoint): unlike a network merely *trained on* a licensed dataset, FLYNN's recurrent weight matrix's
+checkpoint): FLYNN's recurrent weight matrix's
 sparsity structure *is* the connectome edge list, scaled — so the checkpoint directly incorporates
-FlyWire data, not just statistical patterns learned from it. The other 3 checkpoints and the synthetic
+FlyWire data. The other 3 checkpoints and the synthetic
 SmallWorldNet connectome involve no FlyWire data at all and are this project's own work, MIT-licensed
 same as the rest of this repo.
 
@@ -164,18 +151,14 @@ What's in it and where each file goes:
 
 Each checkpoint above is trained once, on full vision; `run_connectome_rnn_checkpoint.py` and
 `run_vision_agent_checkpoint.py` reproduce all 4 vision-ablation conditions (full / right-eye-only /
-left-eye-only / blind) from that single checkpoint by masking the input at eval time, not by loading a
-separate checkpoint per condition — so these 4 files are enough to reproduce Table I's full sweep, not
-just its full-vision row. Drop them into `checkpoints/` (create the folder if it doesn't already exist)
+left-eye-only / blind) from that single checkpoint by masking the input at eval time. 
+Drop checkpoints into `checkpoints/` (create the folder if it doesn't already exist)
 and pass the path straight to the eval scripts, e.g.:
 
 ```bash
 python run_connectome_rnn_checkpoint.py checkpoints/connectome_rnn_dagger_princeton_full_vision.pt
 ```
 
-The connectome's small per-modality CSVs and the SmallWorldNet generator script don't need downloading
-separately — they're already tracked under `connectomes/` here in the repo, and load automatically once
-the corresponding large edge list above is in place.
 
 ## Usage
 
@@ -198,36 +181,6 @@ Evaluate a trained checkpoint (checkpoint path is a required argument for both):
 python run_connectome_rnn_checkpoint.py checkpoints/<your_checkpoint>.pt
 python run_vision_agent_checkpoint.py checkpoints/<your_checkpoint>.pt
 ```
-
-Both eval scripts write per-episode rollout data to `eval_data/<run_name>/`. Aggregate that into the
-reported statistics and figures with:
-
-```bash
-python collision_statistics.py
-python count_collisions.py
-python compare_trajectories.py
-python visualize_episodes.py
-python analysis_pca_statistics.py
-```
-
-`analysis_pca.py` is a separate tool for visualizing hidden-state trajectories saved during a
-checkpoint's internal-state recording, rather than the `eval_data/` rollout output the pipeline above
-consumes:
-
-```bash
-python analysis_pca.py
-```
-
-None of these 5 scripts take a data-location CLI argument yet — each has a path constant near the top
-that needs editing to point at your own data before it'll find anything:
-
-| Script | Constant | Current value |
-|---|---|---|
-| `count_collisions.py` | `folders` (in `__main__`) | `[]` — a no-op until you list your `eval_data/` subfolder names |
-| `compare_trajectories.py` | `BASE_DIR` | `path_to\trajectories` placeholder |
-| `analysis_pca_statistics.py` | `CONDITION_FOLDERS` | `path_to\eval_data\...` placeholders (its `assert os.path.isdir(...)` will fail until replaced) |
-| `visualize_episodes.py` | `target_dir` (in `__main__`) | hardcoded to `eval_data/small_world_textured_env` |
-| `analysis_pca.py` | `NPY_DIR` | still the original author's own absolute local path — replace before running |
 
 ## License
 
