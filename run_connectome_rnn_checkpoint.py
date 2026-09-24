@@ -64,7 +64,6 @@ PROG_SCALE = 10.0
 RECORD_CSV = None#"connectomes/drosophila adult connectome/moonwalker_neurons.csv"       # e.g., "neurons_to_record.csv"
 OVERWRITE_CSV = None#"connectomes/drosophila adult connectome/moonwalker_neurons.csv"    # e.g., "neurons_to_overwrite.csv"
 END_ON_COLLISION = False
-MAX_EPISODE_STEPS = 600
 
 def maybe_show_cameras(obs):
     if cv2 is None: return
@@ -333,6 +332,9 @@ def run_one_configuration(checkpoint, vision, rendermode = None):
     
     # --- Configuration ---
     # checkpoint = CHECKPOINT
+    # Episode ep is rolled out with env seed=ep, so the 500 eval layouts are fixed and
+    # identical across vision conditions and checkpoints.  Training uses seeds starting at
+    # TRAIN_ENV_SEED_BASE (100_000), so these layouts are never seen during training.
     episodes = 500
     render_mode = rendermode# Set to None for faster headless run
     vision = vision
@@ -347,7 +349,7 @@ def run_one_configuration(checkpoint, vision, rendermode = None):
     save_hidden_state_episodes = [53]  # e.g., [1, 5, 53] to save those episodes
     # ---------------------
 
-    env = _make_env(render_mode=render_mode, n_obstacles=20)
+    env = _make_env(render_mode=render_mode, n_obstacles=N_OBSTACLES)
     agent, id2idx = _load_agent(checkpoint, device=device, dtype=dtype)
 
     # Load indices
