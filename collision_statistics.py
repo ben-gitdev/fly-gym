@@ -359,8 +359,8 @@ def regenerate_bars_from_stats_csv(csv_path, output_dir=None):
     condition-minor), without needing the underlying per-episode eval_data folders.
 
     Useful when the raw eval_data run that produced a given CSV has since been deleted or
-    rotated away (as happened here -- see CLEANUP_PLAN.md Progress log / former §1.4):
-    eval_data/ no longer contains the condition-named folders (connectome_full_vision, etc.)
+    rotated away. That happened here: eval_data/ no longer contains the condition-named folders
+    (connectome_full_vision, etc.)
     that either of collision_statistics.py's __main__ folder lists expect, so the root-level
     bar_*.png had regressed to showing only the 4-folder OOD sweep with empty bars for 3 of 4
     models. collision_statistics_checker_texture.csv still holds the correct, previously

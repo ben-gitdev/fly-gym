@@ -8,11 +8,16 @@ dist/
 *.jpg
 MUJOCO_LOG.TXT
 
-# Holding area for confirmed-dead files pending permanent deletion (see CLEANUP_PLAN.md §2d) --
-# moved here instead of rm'd outright since none of it is backed by git history.
+# Internal cleanup/audit working doc -- process notes and "your call" author-decision
+# language, not meant for the public release. Kept locally, excluded from the repo.
+CLEANUP_PLAN.md
+
+# Holding area for confirmed-dead files with no git history to fall back on --
+# moved here instead of rm'd outright so nothing is unrecoverably lost.
 _pending_deletion/
 
-# Model checkpoints (host externally, see CLEANUP_PLAN.md §2c)
+# Model checkpoints -- too large for git; host externally (see README's Data and
+# checkpoints section) and skip committing them here.
 *.pt
 *.pth
 

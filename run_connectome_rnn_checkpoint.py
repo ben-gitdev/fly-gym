@@ -42,8 +42,8 @@ from train_connectome_rnn_dagger import (
 )
 from core.utils import build_connectome_cell, obs_to_torch
 
-# Reward-shaping constants below match train_connectome_rnn_rl.py's values (that module was an
-# abandoned PPO/critic training path, since removed -- see CLEANUP_PLAN.md §2d). Only
+# Reward-shaping constants below match the values a since-removed train_connectome_rnn_rl.py
+# (an abandoned PPO/critic training path) used to import them from. Only
 # time_penalty/prog_scale/ctrl_penalty are actually used by _make_env() below; goal_bonus/
 # contact_penalty are passed as 0 there regardless.
 CTRL_PENALTY = 0.001
