@@ -274,7 +274,7 @@ def parse_args():
         help="Path to the .pt checkpoint to evaluate. Required: this used to default to "
              "'efficientnet_dagger_final_robust.pt' with a silent 'pick any checkpoint found' "
              "fallback, which made it ambiguous which trained model actually produced a given "
-             "result (see CLEANUP_PLAN.md item #6). Now the caller must say explicitly.",
+             "result. Now the caller must say explicitly.",
     )
     parser.add_argument(
         "--model-type",

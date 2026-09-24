@@ -4,7 +4,9 @@ Code accompanying **"FLYNN: Robust Neural Network for Robot Navigation using Fly
 ([arXiv:2607.00025](https://arxiv.org/abs/2607.00025); see [Citation](#citation)).
 
 FLYNN is a recurrent neural network whose connectivity is derived directly from the FlyWire FAFB v783
-*Drosophila* connectome (139,255 neurons, 5,342,445 synaptic connections). It's trained with DAgger
+*Drosophila* connectome shipped with this repo (138,584 neurons, 5,342,446 synaptic connections —
+counted directly from `connections_princeton.csv` and confirmed by `build_connectome_cell()`'s own
+load log). It's trained with DAgger
 imitation learning to drive a two-wheeled, two-camera robot to a goal around randomly placed obstacles
 in a MuJoCo arena, and is benchmarked against a synthetic Watts-Strogatz control network
 ("SmallWorldNet", matched on the connectome's degree/path-length statistics) and two conventional CNN
@@ -179,8 +181,24 @@ python visualize_episodes.py
 python analysis_pca_statistics.py
 ```
 
-`analysis_pca.py` and `compare_trajectories.py` still have local data-path constants near the top of
-each file that need to point at your own eval-data location before running them.
+`analysis_pca.py` is a separate tool for visualizing hidden-state trajectories saved during a
+checkpoint's internal-state recording, rather than the `eval_data/` rollout output the pipeline above
+consumes:
+
+```bash
+python analysis_pca.py
+```
+
+None of these 5 scripts take a data-location CLI argument yet — each has a path constant near the top
+that needs editing to point at your own data before it'll find anything:
+
+| Script | Constant | Current value |
+|---|---|---|
+| `count_collisions.py` | `folders` (in `__main__`) | `[]` — a no-op until you list your `eval_data/` subfolder names |
+| `compare_trajectories.py` | `BASE_DIR` | `path_to\trajectories` placeholder |
+| `analysis_pca_statistics.py` | `CONDITION_FOLDERS` | `path_to\eval_data\...` placeholders (its `assert os.path.isdir(...)` will fail until replaced) |
+| `visualize_episodes.py` | `target_dir` (in `__main__`) | hardcoded to `eval_data/small_world_textured_env` |
+| `analysis_pca.py` | `NPY_DIR` | still the original author's own absolute local path — replace before running |
 
 ## License
 
@@ -188,14 +206,12 @@ each file that need to point at your own eval-data location before running them.
 
 ## Citation
 
-<!-- TODO: confirm the full author list before publishing -- neither this file nor arXiv:2607.00025's
-     metadata gave a reliable full author list at the time this was written. -->
-
 If you use this code, please cite the accompanying paper:
 
 ```bibtex
 @misc{flynn2026,
   title         = {FLYNN: Robust Neural Network for Robot Navigation using Fly Brain Topology},
+  author        = {Wang, Benquan and Chen, Jingdao},
   eprint        = {2607.00025},
   archivePrefix = {arXiv},
   url           = {https://arxiv.org/abs/2607.00025},
