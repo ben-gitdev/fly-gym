@@ -34,13 +34,6 @@ from train_connectome_rnn_dagger import (
     INPUT_SCALE_INIT,
     MAX_EPISODE_STEPS,
     N_OBSTACLES,
-    PHOTORECEPTOR_LEFT_CSV,
-    PHOTORECEPTOR_RIGHT_CSV,
-    TACTILE_LEFT_CSV,
-    TACTILE_RIGHT_CSV,
-    DESCENDING_NEURONS_CSV,
-    CELL_TYPES_CSV,
-    WIND_SENSING_CSV, # NEW
     TARGET_RHO,
     LEAK_ALPHA,
     ACTIVATION,
@@ -59,7 +52,6 @@ PROG_SCALE = 10.0
 
 
 # CHECKPOINT = "checkpoints/connectome_rnn_dagger_princeton_random_full_vision.pt"
-# EDGE_PATH = "connectomes/drosophila adult connectome/connections_princeton.csv"
 # CHECKPOINT = "checkpoints/connectome_rnn_dagger_princeton_3.pt"
 RECORD_CSV = None#"connectomes/drosophila adult connectome/moonwalker_neurons.csv"       # e.g., "neurons_to_record.csv"
 OVERWRITE_CSV = None#"connectomes/drosophila adult connectome/moonwalker_neurons.csv"    # e.g., "neurons_to_overwrite.csv"
@@ -75,6 +67,47 @@ def maybe_show_cameras(obs):
         cv2.waitKey(1)
     except Exception:
         pass
+
+# Filenames every connectome directory uses for the neuron-set CSVs.  They are identical
+# across connectomes (FLYNN, SmallWorldNet, ...), which is what lets them be resolved from
+# the edge list's own directory instead of being configured separately -- a --connectome
+# pointing at one directory can't then silently pick up another directory's neuron IDs.
+_CONNECTOME_CSV_NAMES = {
+    "photoreceptor_left_csv": "visual_column_L1_L2_L3_rear_view_left.csv",
+    "photoreceptor_right_csv": "visual_column_L1_L2_L3_rear_view_right.csv",
+    "tactile_left_csv": "head_bristles_left.csv",
+    "tactile_right_csv": "head_bristles_right.csv",
+    "descending_neurons_csv": "descending_neurons.csv",
+    "cell_types_csv": "consolidated_cell_types.csv",
+    "wind_sensing_csv": "JO-C_and_JO-E.csv",
+}
+
+
+def resolve_connectome_path(edge_path: Optional[str]) -> str:
+    """Return the connectome edge list to build the model from.
+
+    When *edge_path* is None this falls back to shared_config's EDGE_PATH -- i.e. whichever
+    connectome the *training* config currently points at, which is not necessarily the one
+    this checkpoint was trained on.  A .pt records no provenance, so a mismatch would only
+    be caught if the shapes happened to differ; hence the warning.
+    """
+    if edge_path is not None:
+        return edge_path
+    print(
+        "[warn] No --connectome given; falling back to the shared_config default:\n"
+        f"[warn]   {EDGE_PATH}\n"
+        "[warn] That is the connectome the training config points at today, which may\n"
+        "[warn] NOT be the one this checkpoint was trained on. Checkpoints record no\n"
+        "[warn] provenance, so pass --connectome explicitly if you are not certain."
+    )
+    return EDGE_PATH
+
+
+def connectome_csv_paths(edge_path: str) -> dict:
+    """Resolve the neuron-set CSVs that accompany *edge_path*, from its own directory."""
+    base = os.path.dirname(edge_path)
+    return {key: os.path.join(base, name) for key, name in _CONNECTOME_CSV_NAMES.items()}
+
 
 def _make_env(render_mode: Optional[str], n_obstacles: int) -> MuJoCoTwoCamEnv:
     return MuJoCoTwoCamEnv(
@@ -93,21 +126,18 @@ def _make_env(render_mode: Optional[str], n_obstacles: int) -> MuJoCoTwoCamEnv:
     )
 
 
-def _load_agent(checkpoint_path: str, device: torch.device, dtype: torch.dtype) -> ConnectomeAgent:
+def _load_agent(checkpoint_path: str, device: torch.device, dtype: torch.dtype,
+                edge_path: str) -> ConnectomeAgent:
     if not os.path.isfile(checkpoint_path):
         raise FileNotFoundError(f"Checkpoint not found: {checkpoint_path}")
+    if not os.path.isfile(edge_path):
+        raise FileNotFoundError(f"Connectome edge list not found: {edge_path}")
 
     cell, pr_positions, input_splits, id2idx = build_connectome_cell(
-        edge_path=EDGE_PATH,
+        edge_path=edge_path,
         device=device,
         dtype=dtype,
-        photoreceptor_left_csv=PHOTORECEPTOR_LEFT_CSV,
-        photoreceptor_right_csv=PHOTORECEPTOR_RIGHT_CSV,
-        tactile_left_csv=TACTILE_LEFT_CSV,
-        tactile_right_csv=TACTILE_RIGHT_CSV,
-        descending_neurons_csv=DESCENDING_NEURONS_CSV,
-        cell_types_csv=CELL_TYPES_CSV,
-        wind_sensing_csv=WIND_SENSING_CSV,
+        **connectome_csv_paths(edge_path),
         target_rho=TARGET_RHO,
         leak_alpha=LEAK_ALPHA,
         activation=ACTIVATION,
@@ -326,7 +356,7 @@ def rollout_episode(
 
 
 
-def run_one_configuration(checkpoint, vision, rendermode = None):
+def run_one_configuration(checkpoint, vision, rendermode = None, edge_path = None):
     device = get_device()
     dtype = DTYPE
     
@@ -349,8 +379,11 @@ def run_one_configuration(checkpoint, vision, rendermode = None):
     save_hidden_state_episodes = [53]  # e.g., [1, 5, 53] to save those episodes
     # ---------------------
 
+    edge_path = resolve_connectome_path(edge_path)
+    print(f"[main] Connectome: {edge_path}")
+
     env = _make_env(render_mode=render_mode, n_obstacles=N_OBSTACLES)
-    agent, id2idx = _load_agent(checkpoint, device=device, dtype=dtype)
+    agent, id2idx = _load_agent(checkpoint, device=device, dtype=dtype, edge_path=edge_path)
 
     # Load indices
     record_indices = load_neuron_indices(record_csv, id2idx)
@@ -393,7 +426,7 @@ def run_one_configuration(checkpoint, vision, rendermode = None):
                 overwrite_steps=overwrite_steps,
                 seed=ep,
                 vision=vision,
-                save_hidden_states=True,#(ep in save_hidden_state_episodes),
+                save_hidden_states=False,#(ep in save_hidden_state_episodes),
             )
             episode_summaries.append({
                 "episode": ep,
@@ -429,10 +462,17 @@ def parse_args():
     )
     parser.add_argument(
         "checkpoint",
-        help="Path to the .pt checkpoint to evaluate. Required: this used to default to a "
-             "hardcoded SmallWorldNet checkpoint, which made it ambiguous which trained model "
-             "actually produced a given result (see CLEANUP_PLAN.md §2a-caveat). Now the caller "
-             "must say explicitly.",
+        help="Path to the .pt checkpoint to evaluate. Required"
+    )
+    parser.add_argument(
+        "--connectome",
+        default=None,
+        metavar="EDGE_CSV",
+        help="Connectome edge-list CSV to build the model from, e.g. "
+             "'connectomes/drosophila adult connectome/connections_princeton.csv'. The "
+             "photoreceptor, bristle, descending-neuron, cell-type and wind CSVs are read "
+             "from the same directory. Defaults to shared_config's EDGE_PATH, with a warning "
+             "that it may not match the checkpoint.",
     )
     return parser.parse_args()
 
@@ -440,15 +480,17 @@ def parse_args():
 if __name__ == "__main__":
     args = parse_args()
     checkpoint = args.checkpoint
+    # Resolved once so the fallback warning is printed a single time rather than per condition.
+    edge_path = resolve_connectome_path(args.connectome)
     # while not os.path.exists(checkpoint):
     #     print(f"Waiting for checkpoint {checkpoint} to be created...")
     #     time.sleep(60)
     # time.sleep(60)
     rendermode = "human"
-    dir1 = run_one_configuration(checkpoint, vision=[True, True], rendermode = rendermode)
-    dir2 = run_one_configuration(checkpoint, vision=[False, True], rendermode = rendermode)
-    dir3 = run_one_configuration(checkpoint, vision=[True, False], rendermode = rendermode)
-    dir4 = run_one_configuration(checkpoint, vision=[False, False], rendermode = rendermode)
+    dir1 = run_one_configuration(checkpoint, vision=[True, True], rendermode = rendermode, edge_path = edge_path)
+    dir2 = run_one_configuration(checkpoint, vision=[False, True], rendermode = rendermode, edge_path = edge_path)
+    dir3 = run_one_configuration(checkpoint, vision=[True, False], rendermode = rendermode, edge_path = edge_path)
+    dir4 = run_one_configuration(checkpoint, vision=[False, False], rendermode = rendermode, edge_path = edge_path)
 
     # # from analysis_pca_statistics import analysis_pca_cka
     # condition_folders = [(dir1, "Full vision"), (dir2, "Right eye only"), (dir3, "Left eye only"), (dir4, "Total blindness")]
