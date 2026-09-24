@@ -12,6 +12,9 @@ MUJOCO_LOG.TXT
 # language, not meant for the public release. Kept locally, excluded from the repo.
 CLEANUP_PLAN.md
 
+# Personal dev log, not meant for the public release. Kept locally, excluded from the repo.
+code update log.txt
+
 # Holding area for confirmed-dead files with no git history to fall back on --
 # moved here instead of rm'd outright so nothing is unrecoverably lost.
 _pending_deletion/
