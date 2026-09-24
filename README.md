@@ -130,7 +130,16 @@ the plain PyPI wheel.
 Connectome data and trained checkpoints are excluded from version control due to size, but are hosted
 on Hugging Face:
 **[benquan1/fly-gym-trained-policies](https://huggingface.co/datasets/benquan1/fly-gym-trained-policies)**
-(399MB total, MIT-licensed).
+(399MB total). **Licensing there is mixed, not a blanket MIT.** `drosophila adult connectome.7z` is a
+CSV export of the real FlyWire connectome, which FlyWire licenses CC BY-NC 4.0
+(Attribution-NonCommercial) — see `connectomes/drosophila adult connectome/data source.txt` for the
+full attribution notice; that license is not superseded by this repo's own MIT `LICENSE` file. The same
+CC BY-NC 4.0 terms also apply to `connectome_rnn_dagger_princeton_full_vision.pt` (the FLYNN
+checkpoint): unlike a network merely *trained on* a licensed dataset, FLYNN's recurrent weight matrix's
+sparsity structure *is* the connectome edge list, scaled — so the checkpoint directly incorporates
+FlyWire data, not just statistical patterns learned from it. The other 3 checkpoints and the synthetic
+SmallWorldNet connectome involve no FlyWire data at all and are this project's own work, MIT-licensed
+same as the rest of this repo.
 
 ```bash
 git clone https://huggingface.co/datasets/benquan1/fly-gym-trained-policies
@@ -147,10 +156,11 @@ What's in it and where each file goes:
   `connections_ws_small_world.csv` (~169MB), the synthetic SmallWorldNet control edge list.
   Regeneratable from a fixed seed instead via `connectomes/ws_small_world/generate_ws_network_new.py`.
 - `connectome_rnn_dagger_princeton_full_vision.pt` (108MB) — FLYNN, trained with full vision.
+  **CC BY-NC 4.0** (see above), not MIT.
 - `connectome_rnn_dagger_small_world_full_vision.pt` (155MB) — SmallWorldNet control, trained with
-  full vision.
+  full vision. MIT.
 - `efficientnet_dagger_final_robust.pt` (21.2MB) / `mobilenet_dagger_final_robust.pt` (16MB) — the
-  EfficientNet-B0 / MobileNetV3-Large baselines, trained with camera dropout.
+  EfficientNet-B0 / MobileNetV3-Large baselines, trained with camera dropout. MIT.
 
 Each checkpoint above is trained once, on full vision; `run_connectome_rnn_checkpoint.py` and
 `run_vision_agent_checkpoint.py` reproduce all 4 vision-ablation conditions (full / right-eye-only /

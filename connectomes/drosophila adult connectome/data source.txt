@@ -1,0 +1,20 @@
+Source: FlyWire.ai / FAFB v783 connectome (FlyWire Consortium, Princeton Neuroscience Institute
+and collaborators), obtained via https://github.com/philshiu/Drosophila_brain_model, which
+exports the FlyWire connectivity graph into the connections_princeton.csv format used by this
+repo (pre_root_id, post_root_id, syn_count, neuropil, nt_type columns). No changes were made to
+the underlying connectivity data beyond that CSV export.
+
+License: FlyWire connectome data -- including this derived edge-list export -- is licensed
+CC BY-NC 4.0 (Attribution-NonCommercial). See https://creativecommons.org/licenses/by-nc/4.0/
+and https://flywire.ai/tos. This is DIFFERENT from, and not superseded by, this repository's own
+MIT license (../../LICENSE): the MIT license covers this repo's own code, not FlyWire's data, and
+cannot relicense it.
+
+Reuse of this file (or connections_princeton.csv) must:
+  - credit FlyWire / the FlyWire Consortium as the source (see https://flywire.ai for current
+    citation guidance),
+  - remain non-commercial,
+  - retain this notice, or an equivalent one, when redistributed.
+
+philshiu/Drosophila_brain_model itself is MIT-licensed for its own code (the export pipeline);
+that license does not extend to the FlyWire data it exports either.
