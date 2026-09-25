@@ -190,6 +190,24 @@ python run_connectome_rnn_checkpoint.py checkpoints/<your_checkpoint>.pt
 python run_vision_agent_checkpoint.py checkpoints/<your_checkpoint>.pt
 ```
 
+By default each script runs all 4 vision conditions in turn. Use `--vision` to pick one or more of
+them. Each code is two digits, `<left eye><right eye>`, where `1` = eye enabled and `0` = eye blind:
+
+| `--vision` | Condition |
+|---|---|
+| `11` | Full vision |
+| `10` | Left eye only |
+| `01` | Right eye only |
+| `00` | Blind |
+
+```bash
+python run_connectome_rnn_checkpoint.py checkpoints/<your_checkpoint>.pt --vision 10
+python run_vision_agent_checkpoint.py checkpoints/<your_checkpoint>.pt --vision 11 00
+```
+
+Each condition writes its results to its own folder under `eval_data/`. Run either script with
+`--help` to see all options.
+
 ## License
 
 [MIT](LICENSE).
