@@ -200,7 +200,7 @@ def connectome_csv_paths(edge_path: str) -> dict:
     return {key: os.path.join(base, name) for key, name in _CONNECTOME_CSV_NAMES.items()}
 
 
-def _make_env(render_mode: Optional[str], n_obstacles: int) -> MuJoCoTwoCamEnv:
+def _make_env(render_mode: Optional[str], n_obstacles: int, texture_mode: str = "checker") -> MuJoCoTwoCamEnv:
     return MuJoCoTwoCamEnv(
         width=ENV_WIDTH,
         height=ENV_HEIGHT,
@@ -214,6 +214,7 @@ def _make_env(render_mode: Optional[str], n_obstacles: int) -> MuJoCoTwoCamEnv:
         time_penalty=TIME_PENALTY,
         prog_scale=PROG_SCALE,
         ctrl_penalty=CTRL_PENALTY,
+        texture_mode=texture_mode,
     )
 
 
@@ -451,7 +452,7 @@ def rollout_episode(
 
 
 
-def run_one_configuration(checkpoint, vision, rendermode = None, edge_path = None):
+def run_one_configuration(checkpoint, vision, rendermode = None, edge_path = None, texture_mode = "checker"):
     device = get_device()
     dtype = DTYPE
     
@@ -477,7 +478,7 @@ def run_one_configuration(checkpoint, vision, rendermode = None, edge_path = Non
     edge_path = resolve_connectome_path(edge_path)
     print(f"[main] Connectome: {edge_path}")
 
-    env = _make_env(render_mode=render_mode, n_obstacles=N_OBSTACLES)
+    env = _make_env(render_mode=render_mode, n_obstacles=N_OBSTACLES, texture_mode=texture_mode)
     agent, id2idx = _load_agent(checkpoint, device=device, dtype=dtype, edge_path=edge_path)
 
     # Load indices
@@ -588,6 +589,14 @@ def parse_args():
              "01 = right eye only, 00 = blind. Multiple values may be given; defaults to "
              "all four.",
     )
+    parser.add_argument(
+        "--texture-mode",
+        choices=["checker", "realistic"],
+        default="checker",
+        help="Scene texture: 'checker' (default; matches training and the in-distribution "
+             "eval) or 'realistic' (photo-realistic PNG textures, for the out-of-distribution "
+             "generalization eval).",
+    )
     return parser.parse_args()
 
 
@@ -606,6 +615,7 @@ if __name__ == "__main__":
         print(f"[main] Vision condition {code} (left, right) = {VISION_CONDITIONS[code]}")
         condition_dirs[code] = run_one_configuration(
             checkpoint, vision=VISION_CONDITIONS[code], rendermode=rendermode, edge_path=edge_path,
+            texture_mode=args.texture_mode,
         )
 
     # # from analysis_pca_statistics import analysis_pca_cka

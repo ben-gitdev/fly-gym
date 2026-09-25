@@ -210,6 +210,14 @@ python run_vision_agent_checkpoint.py checkpoints/<your_checkpoint>.pt --vision 
 Each condition writes its results to its own folder under `eval_data/`. Run either script with
 `--help` to see all options.
 
+Both scripts default to the checkerboard (in-distribution) scene. Pass `--texture-mode realistic` to
+evaluate against the photo-realistic (out-of-distribution) textures instead:
+
+```bash
+python run_connectome_rnn_checkpoint.py checkpoints/<your_checkpoint>.pt --texture-mode realistic
+python run_vision_agent_checkpoint.py checkpoints/<your_checkpoint>.pt --texture-mode realistic
+```
+
 ### Race the agent
 
 `play_vs_connectome_rnn.py` is a small demo game. You drive the robot with the arrow keys in a copy

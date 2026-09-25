@@ -7,6 +7,7 @@ dist/
 *.pdf
 *.jpg
 MUJOCO_LOG.TXT
+.vscode/
 
 # Internal cleanup/audit working doc -- process notes and "your call" author-decision
 # language, not meant for the public release. Kept locally, excluded from the repo.

@@ -324,6 +324,14 @@ def parse_args():
              "01 = right eye only, 00 = blind. Multiple values may be given; defaults to "
              "all four.",
     )
+    parser.add_argument(
+        "--texture-mode",
+        choices=["checker", "realistic"],
+        default="checker",
+        help="Scene texture: 'checker' (default; matches training and the in-distribution "
+             "eval) or 'realistic' (photo-realistic PNG textures, for the out-of-distribution "
+             "generalization eval).",
+    )
     return parser.parse_args()
 
 
@@ -435,6 +443,7 @@ def main():
         n_obstacles=N_OBSTACLES,
         arena_half_extent=ARENA_HALF_EXTENT,
         render_mode=render_mode,
+        texture_mode=args.texture_mode,
     )
     
     # 2. Initialize Agent
