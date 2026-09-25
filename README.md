@@ -73,6 +73,8 @@ run_connectome_rnn_checkpoint.py Evaluation rollouts for a trained FLYNN/SmallWo
 run_vision_agent_checkpoint.py   Evaluation rollouts for a trained EfficientNet/MobileNet checkpoint
 play_vs_connectome_rnn.py        Demo game: race a trained FLYNN/SmallWorldNet checkpoint, driving
                                  the same robot with the arrow keys from the agent's own inputs
+export_web_game.py               Records the agent's runs and the MuJoCo calibration for the
+                                 browser version of the game in docs/ (static site, GitHub Pages)
 ```
 
 ## Models
@@ -237,6 +239,31 @@ layout, N skips to a new one, and ESC quits. The results screen shows both paths
 map. `--vision` (same codes as above) blinds you and the agent equally. Times are in simulated
 seconds, so the race stays fair if your machine can't run it at full real-time speed; pass
 `--fps 30` for an even pace in that case.
+
+#### Web version
+
+`docs/` holds a browser version of the same game, a static site that needs no Python or GPU. The
+agent can't run in a browser, so its side is recorded ahead of time. The two robots never interact,
+so a recorded run is equivalent to a live one. Your robot is simulated in the browser: a kinematic
+model plus a ray-cast eye view, both calibrated against MuJoCo. Its eye input is within about
+2/255 of MuJoCo's on average, and its speeds and turn rates match MuJoCo's for every key
+combination. `export_web_game.py` records the agent's runs (50 layouts by default, about 9 MB)
+and measures everything the browser needs from MuJoCo, writing it to `docs/data/`:
+
+```bash
+python export_web_game.py checkpoints/connectome_rnn_dagger_princeton_full_vision.pt \
+    --connectome "connectomes/drosophila adult connectome/connections_princeton.csv"
+```
+
+To try it locally, serve the folder (browsers won't load the data from `file://`) and open
+http://localhost:8000:
+
+```bash
+python -m http.server 8000 --directory docs
+```
+
+To publish it, enable GitHub Pages for the repository with *Deploy from a branch*, branch `main`,
+folder `/docs`. `?layout=<seed>` in the URL starts at a given layout.
 
 ## License
 

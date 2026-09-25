@@ -1,0 +1,65 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Race FLYNN: can you out-drive a fly-brain network?</title>
+<link rel="icon" href="data:,">
+<meta name="description" content="Drive a two-wheeled robot to the goal using only what a fruit-fly-wired neural network sees, and race it.">
+<style>
+  :root { color-scheme: dark; }
+  body { margin: 0; background: #16181c; color: #e8eaee; font: 16px/1.55 system-ui, "Segoe UI", Helvetica, Arial, sans-serif; }
+  main { max-width: 1092px; margin: 0 auto; padding: 28px 16px 48px; }
+  h1 { font-size: 30px; margin: 0 0 6px; }
+  h2 { font-size: 19px; margin: 28px 0 6px; }
+  p, li { color: #c5c9d1; max-width: 820px; }
+  a { color: #56a5eb; }
+  canvas { display: block; width: 100%; height: auto; margin: 18px 0 6px; border-radius: 10px; outline: none; }
+  .you { color: #f28e2b; font-weight: 600; }
+  .agent { color: #56a5eb; font-weight: 600; }
+  kbd { background: #262930; border: 1px solid #3a3e46; border-radius: 4px; padding: 0 5px; font: 14px ui-monospace, Consolas, monospace; }
+  .note { font-size: 14px; color: #8c929e; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Race FLYNN</h1>
+  <p>FLYNN is a recurrent neural network wired like a fruit fly's brain: every unit is a neuron and every
+  connection a synapse from the FlyWire connectome. It was trained to drive a two-wheeled robot to a goal
+  around obstacles. Here you drive the same robot through the same arena against it, and you only get what
+  <span class="agent">FLYNN</span> gets.</p>
+
+  <canvas id="game" width="1092" height="500" aria-label="Race FLYNN game"></canvas>
+  <p class="note">Needs a keyboard.</p>
+
+  <h2>How to play</h2>
+  <ul>
+    <li><kbd>&uarr;</kbd> / <kbd>&darr;</kbd> drive forward / backward at FLYNN's cruising speed; <kbd>&larr;</kbd> / <kbd>&rarr;</kbd> turn (on the spot if you aren't driving).</li>
+    <li>Reach the white ball first. You have 30 seconds.</li>
+    <li><kbd>Space</kbd> starts a round and moves on to the next layout, <kbd>P</kbd> pauses, <kbd>R</kbd> retries the layout, <kbd>N</kbd> skips to a new one.</li>
+  </ul>
+
+  <h2>What you see</h2>
+  <ul>
+    <li><b>Eye view.</b> The robot's two cameras look 55&deg; to either side, so straight ahead is the white
+    line between the two panels. Each dot is one of FLYNN's photoreceptor columns, sampling its camera at
+    that point. This is the robot's entire view of the world.</li>
+    <li><b>Goal arrow.</b> The direction of the goal relative to your heading (FLYNN senses it as "wind"
+    through its antennae neurons). There is no distance.</li>
+    <li><b>Bump lamps.</b> The touch sensors on the left and right of the robot's head.</li>
+  </ul>
+
+  <h2>How it works</h2>
+  <p><span class="agent">FLYNN's</span> side is a recording of the trained network driving in the original
+  MuJoCo physics simulation, so its runs are exactly what the network did. <span class="you">Your</span>
+  robot is simulated in your browser, with its motion, collisions and eye view calibrated against that
+  simulation. The two robots never meet: each drives its own copy of the arena, so racing a recording
+  is the same as racing the live network. Times are simulated seconds.</p>
+  <p>Paper: <a href="https://arxiv.org/abs/2607.00025">FLYNN: Robust Neural Network for Robot Navigation using
+  Fly Brain Topology</a> (Wang &amp; Chen, 2026). Code:
+  <a href="https://github.com/ben-gitdev/fly-gym">github.com/ben-gitdev/fly-gym</a>.</p>
+  <p class="note">Connectome data: FlyWire FAFB v783, CC BY-NC 4.0.</p>
+</main>
+<script type="module" src="game.js"></script>
+</body>
+</html>
