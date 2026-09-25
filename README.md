@@ -3,6 +3,9 @@
 Code accompanying **"FLYNN: Robust Neural Network for Robot Navigation using Fly Brain Topology"**
 ([arXiv:2607.00025](https://arxiv.org/abs/2607.00025); see [Citation](#citation)).
 
+**Play it in your browser:** [race FLYNN](https://ben-gitdev.github.io/fly-gym/), driving the same
+robot through the same arena with only what the network sees (see [Race the agent](#race-the-agent)).
+
 FLYNN is a recurrent neural network whose connectivity is derived directly from the FlyWire FAFB v783
 *Drosophila* connectome shipped with this repo. It's trained with DAgger
 imitation learning to drive a two-wheeled, two-camera robot to a goal around randomly placed obstacles
@@ -242,6 +245,8 @@ seconds, so the race stays fair if your machine can't run it at full real-time s
 
 #### Web version
 
+**Play it at https://ben-gitdev.github.io/fly-gym/.**
+
 `docs/` holds a browser version of the same game, a static site that needs no Python or GPU. The
 agent can't run in a browser, so its side is recorded ahead of time. The two robots never interact,
 so a recorded run is equivalent to a live one. Your robot is simulated in the browser: a kinematic
@@ -262,8 +267,9 @@ http://localhost:8000:
 python -m http.server 8000 --directory docs
 ```
 
-To publish it, enable GitHub Pages for the repository with *Deploy from a branch*, branch `main`,
-folder `/docs`. `?layout=<seed>` in the URL starts at a given layout.
+The live site is served by GitHub Pages from `main`, folder `/docs`, so pushing changes to `docs/`
+updates it. `?layout=<seed>` in the URL starts at a given layout, e.g.
+https://ben-gitdev.github.io/fly-gym/?layout=7.
 
 ## License
 
