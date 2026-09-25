@@ -417,7 +417,7 @@ def main():
     episodes = 500
     render = True
     # Internal State Recording Config
-    save_internal_state_episodes = None#[53]  # e.g., [1, 5, 10] to save those episodes
+    save_internal_state_episodes = []  # e.g., [1, 5, 10] to save those episodes
     internal_state_mode = "gru_mlp"  # "none", "gru_mlp", or "all"
     # ---------------------
 
