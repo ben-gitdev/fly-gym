@@ -14,7 +14,39 @@
   h2 { font-size: 19px; margin: 28px 0 6px; }
   p, li { color: #c5c9d1; max-width: 820px; }
   a { color: #56a5eb; }
-  canvas { display: block; width: 100%; height: auto; margin: 18px 0 6px; border-radius: 10px; outline: none; }
+  /* The game and (on touch screens) its buttons fit on screen together: the canvas keeps its aspect
+     ratio and shrinks to leave --reserve pixels of the viewport height free. */
+  :root { --reserve: 24px; }
+  body.touch { --reserve: 180px; }
+  .game { margin: 18px 0 6px; }
+  canvas { display: block; width: auto; height: auto; max-width: 100%; margin: 0 auto; border-radius: 10px; outline: none;
+           max-height: calc(100vh - var(--reserve)); max-height: calc(100svh - var(--reserve)); touch-action: manipulation; }
+  .touch-controls { display: none; }
+  body.touch .touch-controls { display: grid; grid-template-columns: auto 1fr auto; align-items: end; gap: 12px; margin-top: 10px; }
+  .touch-controls button { font: 600 16px system-ui, "Segoe UI", Helvetica, Arial, sans-serif; color: #e8eaee; background: #262930;
+           border: 1px solid #3a3e46; border-radius: 12px; -webkit-tap-highlight-color: transparent;
+           touch-action: none; user-select: none; -webkit-user-select: none; -webkit-touch-callout: none; }
+  .touch-controls button:disabled { color: #8c929e; }
+  .steer { display: flex; gap: 8px; }
+  .drive { display: grid; gap: 8px; }
+  .actions { display: grid; gap: 8px; justify-self: center; width: min(100%, 180px); }
+  .actions button { height: 40px; }
+  .pad { width: 64px; height: 64px; display: grid; place-items: center; }
+  .pad svg { width: 30px; height: 30px; fill: currentColor; }
+  .pad.held { background: #3a3e46; color: #f28e2b; border-color: #f28e2b; }
+  body.touch .keys-only, body:not(.touch) .touch-only { display: none; }
+  /* Sideways: steering left of the game, driving right of it, the other buttons below. */
+  @media (orientation: landscape) {
+    body.touch { --reserve: 76px; }
+    body.touch .game { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: end; column-gap: 12px; }
+    body.touch .touch-controls { display: contents; }
+    body.touch .game canvas { grid-column: 2; grid-row: 1; }
+    body.touch .steer { grid-column: 1; grid-row: 1; }
+    body.touch .drive { grid-column: 3; grid-row: 1; }
+    body.touch .actions { grid-column: 2; grid-row: 2; grid-auto-flow: column; width: auto; margin-top: 8px; }
+    body.touch .actions button { padding: 0 18px; }
+  }
+  @media (max-width: 600px) { main { padding: 18px 10px 40px; } h1 { font-size: 25px; } }
   .you { color: #f28e2b; font-weight: 600; }
   .agent { color: #56a5eb; font-weight: 600; }
   kbd { background: #262930; border: 1px solid #3a3e46; border-radius: 4px; padding: 0 5px; font: 14px ui-monospace, Consolas, monospace; }
@@ -29,14 +61,33 @@
   around obstacles. Here you drive the same robot through the same arena against it, and you only get what
   <span class="agent">FLYNN</span> gets.</p>
 
-  <canvas id="game" width="1092" height="500" aria-label="Race FLYNN game"></canvas>
-  <p class="note">Needs a keyboard.</p>
+  <div class="game">
+    <canvas id="game" width="1092" height="500" aria-label="Race FLYNN game"></canvas>
+    <div class="touch-controls" id="touch-controls">
+      <div class="steer">
+        <button class="pad" data-hold="ArrowLeft" aria-label="Turn left" tabindex="-1"><svg viewBox="0 0 24 24"><path d="M16 4 6 12l10 8z"/></svg></button>
+        <button class="pad" data-hold="ArrowRight" aria-label="Turn right" tabindex="-1"><svg viewBox="0 0 24 24"><path d="m8 4 10 8-10 8z"/></svg></button>
+      </div>
+      <div class="actions">
+        <button data-tap="primary" tabindex="-1">Start</button>
+        <button data-tap="KeyR" tabindex="-1">Retry</button>
+        <button data-tap="KeyN" tabindex="-1">New layout</button>
+      </div>
+      <div class="drive">
+        <button class="pad" data-hold="ArrowUp" aria-label="Forward" tabindex="-1"><svg viewBox="0 0 24 24"><path d="m4 16 8-10 8 10z"/></svg></button>
+        <button class="pad" data-hold="ArrowDown" aria-label="Backward" tabindex="-1"><svg viewBox="0 0 24 24"><path d="m4 8 8 10 8-10z"/></svg></button>
+      </div>
+    </div>
+  </div>
+  <p class="note keys-only">Keyboard: arrow keys and Space. On a phone or tablet, on-screen buttons appear; hold the phone upright.</p>
+  <p class="note touch-only">Hold the phone upright for the biggest view.</p>
 
   <h2>How to play</h2>
   <ul>
-    <li><kbd>&uarr;</kbd> / <kbd>&darr;</kbd> drive forward / backward at FLYNN's cruising speed; <kbd>&larr;</kbd> / <kbd>&rarr;</kbd> turn (on the spot if you aren't driving).</li>
+    <li><kbd>&uarr;</kbd> / <kbd>&darr;</kbd> drive forward / backward at FLYNN's cruising speed; <kbd>&larr;</kbd> / <kbd>&rarr;</kbd> turn (on the spot if you aren't driving).
+    On a touch screen, hold the arrow buttons: turn with your left thumb, drive with your right.</li>
     <li>Reach the white ball first. You have 30 seconds.</li>
-    <li><kbd>Space</kbd> starts a round and moves on to the next layout, <kbd>P</kbd> pauses, <kbd>R</kbd> retries the layout, <kbd>N</kbd> skips to a new one.</li>
+    <li><kbd>Space</kbd> (or <b>Start</b>) starts a round and moves on to the next layout, <kbd>P</kbd> pauses, <kbd>R</kbd> (<b>Retry</b>) retries the layout, <kbd>N</kbd> (<b>New layout</b>) skips to a new one.</li>
   </ul>
 
   <h2>What you see</h2>
