@@ -247,29 +247,16 @@ seconds, so the race stays fair if your machine can't run it at full real-time s
 
 **Play it at https://ben-gitdev.github.io/fly-gym/.**
 
-`docs/` holds a browser version of the same game, a static site that needs no Python or GPU. The
-agent can't run in a browser, so its side is recorded ahead of time. The two robots never interact,
-so a recorded run is equivalent to a live one. Your robot is simulated in the browser: a kinematic
-model plus a ray-cast eye view, both calibrated against MuJoCo. Its eye input is within about
-2/255 of MuJoCo's on average, and its speeds and turn rates match MuJoCo's for every key
-combination. `export_web_game.py` records the agent's runs (50 layouts by default, about 9 MB)
-and measures everything the browser needs from MuJoCo, writing it to `docs/data/`:
-
-```bash
-python export_web_game.py checkpoints/connectome_rnn_dagger_princeton_full_vision.pt \
-    --connectome "connectomes/drosophila adult connectome/connections_princeton.csv"
-```
-
-To try it locally, serve the folder (browsers won't load the data from `file://`) and open
-http://localhost:8000:
+To try the web version locally, serve the folder 
 
 ```bash
 python -m http.server 8000 --directory docs
 ```
 
-The live site is served by GitHub Pages from `main`, folder `/docs`, so pushing changes to `docs/`
-updates it. `?layout=<seed>` in the URL starts at a given layout, e.g.
-https://ben-gitdev.github.io/fly-gym/?layout=7.
+and open
+http://localhost:8000:
+
+The live site is served by GitHub Pages from `main`, folder `/docs`.
 
 ## License
 
