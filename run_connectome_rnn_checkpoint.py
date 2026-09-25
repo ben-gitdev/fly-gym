@@ -134,22 +134,26 @@ class PhotoreceptorView:
             cls._cache[id(agent)] = cls(agent)
         return cls._cache[id(agent)]
 
+    def render(self, x: torch.Tensor) -> np.ndarray:
+        """Return both eyes as one (eye_size, 2 * eye_size + 4) uint8 image (left | right)."""
+        x_np = x[0].detach().float().cpu().numpy()
+        panels = []
+        for eye in ("left", "right"):
+            segments, _ = self.eyes[eye]
+            vals = np.concatenate([
+                x_np[slice(*self.agent.input_splits[seg])] if seg in self.agent.input_splits
+                else np.zeros(0) for seg in segments
+            ])
+            # Append the background as the last entry so label -1 maps to it.
+            lut = np.append(np.clip(vals, 0.0, 1.0) * 255.0, self.background).astype(np.uint8)
+            panels.append(lut[self.labels[eye]])
+        sep = np.full((self.eye_size, 4), 255, dtype=np.uint8)
+        return np.hstack([panels[0], sep, panels[1]])
+
     def show(self, x: torch.Tensor) -> None:
         if cv2 is None: return
         try:
-            x_np = x[0].detach().float().cpu().numpy()
-            panels = []
-            for eye in ("left", "right"):
-                segments, _ = self.eyes[eye]
-                vals = np.concatenate([
-                    x_np[slice(*self.agent.input_splits[seg])] if seg in self.agent.input_splits
-                    else np.zeros(0) for seg in segments
-                ])
-                # Append the background as the last entry so label -1 maps to it.
-                lut = np.append(np.clip(vals, 0.0, 1.0) * 255.0, self.background).astype(np.uint8)
-                panels.append(lut[self.labels[eye]])
-            sep = np.full((self.eye_size, 4), 255, dtype=np.uint8)
-            cv2.imshow("Agent Input: photoreceptors (Left | Right)", np.hstack([panels[0], sep, panels[1]]))
+            cv2.imshow("Agent Input: photoreceptors (Left | Right)", self.render(x))
             cv2.waitKey(1)
         except Exception:
             pass

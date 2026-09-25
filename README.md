@@ -71,6 +71,8 @@ train_visionnet_dagger.py        DAgger + camera-dropout training for the Effici
                                   baselines
 run_connectome_rnn_checkpoint.py Evaluation rollouts for a trained FLYNN/SmallWorldNet checkpoint
 run_vision_agent_checkpoint.py   Evaluation rollouts for a trained EfficientNet/MobileNet checkpoint
+play_vs_connectome_rnn.py        Demo game: race a trained FLYNN/SmallWorldNet checkpoint, driving
+                                 the same robot with the arrow keys from the agent's own inputs
 ```
 
 ## Models
@@ -207,6 +209,26 @@ python run_vision_agent_checkpoint.py checkpoints/<your_checkpoint>.pt --vision 
 
 Each condition writes its results to its own folder under `eval_data/`. Run either script with
 `--help` to see all options.
+
+### Race the agent
+
+`play_vs_connectome_rnn.py` is a small demo game. You drive the robot with the arrow keys in a copy
+of the eval arena that has the same layout, start pose and goal as the agent's. You see only what
+the agent sees: its photoreceptor-sampled eye input, an arrow for the goal direction (its "wind"
+input) and left/right bump lamps (its head-bristle input). Your robot moves at the agent's cruise
+speed (velocity command 0.7, about 1.25 m/s). The checkpoint races alongside, rolled out as in
+the eval script.
+
+```bash
+python play_vs_connectome_rnn.py checkpoints/connectome_rnn_dagger_princeton_full_vision.pt \
+    --connectome "connectomes/drosophila adult connectome/connections_princeton.csv"
+```
+
+Up/Down drive forward/backward, Left/Right turn, SPACE starts a round, P pauses, R retries the
+layout, N skips to a new one, and ESC quits. The results screen shows both paths on a top-down
+map. `--vision` (same codes as above) blinds you and the agent equally. Times are in simulated
+seconds, so the race stays fair if your machine can't run it at full real-time speed; pass
+`--fps 30` for an even pace in that case.
 
 ## License
 

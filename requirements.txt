@@ -14,6 +14,9 @@ glfw>=2.10.0
 # Computer vision
 opencv-python>=4.12.0.88
 
+# Race-the-agent game (play_vs_connectome_rnn.py)
+pygame>=2.6.1
+
 # Plotting
 matplotlib>=3.10.1
 seaborn>=0.13.2
