@@ -57,16 +57,103 @@ RECORD_CSV = None#"connectomes/drosophila adult connectome/moonwalker_neurons.cs
 OVERWRITE_CSV = None#"connectomes/drosophila adult connectome/moonwalker_neurons.csv"    # e.g., "neurons_to_overwrite.csv"
 END_ON_COLLISION = False
 
-def maybe_show_cameras(obs):
+def maybe_show_cameras(obs, vision=(True, True)):
+    """Show the two eye cameras, blacking out any eye disabled by `vision` ([left, right])
+    so the window matches what the agent actually receives."""
     if cv2 is None: return
     try:
         left_gray = cv2.cvtColor(obs["cam_left"], cv2.COLOR_RGB2GRAY)
         right_gray = cv2.cvtColor(obs["cam_right"], cv2.COLOR_RGB2GRAY)
+        if not vision[0]:
+            left_gray = np.zeros_like(left_gray)
+        if not vision[1]:
+            right_gray = np.zeros_like(right_gray)
         frame = np.hstack([left_gray, right_gray])
         cv2.imshow("Agent View (Left | Right)", frame)
         cv2.waitKey(1)
     except Exception:
         pass
+
+class PhotoreceptorView:
+    """Show the per-column intensities the connectome agent actually samples from each eye.
+
+    ConnectomeAgent.obs_to_x grayscales each eye image, applies a 5x5 average pool, and
+    bilinearly samples it at every photoreceptor's grid position (L1/L2/L3 of a column share
+    one position).  This draws each sampled value as a dot at its grid position, so the window
+    shows the agent's visual input *before* the virtual-retina temporal filtering.
+    """
+
+    EYE_SEGMENTS = {
+        "left": ("pr_L1_left", "pr_L2_left", "pr_L3_left"),
+        "right": ("pr_L1_right", "pr_L2_right", "pr_L3_right"),
+    }
+
+    def __init__(self, agent: ConnectomeAgent, eye_size: int = 256, background: int = 40):
+        self.eye_size = eye_size
+        self.background = background
+        self.eyes = {}
+        for eye, segments in self.EYE_SEGMENTS.items():
+            grids = [getattr(agent, f"grid_{seg[3:]}") for seg in segments]
+            # Grid is (1, N, 1, 2) in image coords (x right, y down), align_corners=True.
+            px = [((g.view(-1, 2).cpu().numpy() + 1.0) / 2.0 * (eye_size - 1)).round().astype(int)
+                  if g is not None else np.zeros((0, 2), dtype=int) for g in grids]
+            self.eyes[eye] = (segments, np.concatenate(px, axis=0))
+        # Dot radius from the nearest-neighbour spacing of the lattice.
+        pts = self.eyes["left"][1] if len(self.eyes["left"][1]) else self.eyes["right"][1]
+        uniq = np.unique(pts, axis=0).astype(float)
+        if len(uniq) > 1:
+            d = np.sqrt(((uniq[:, None, :] - uniq[None, :, :]) ** 2).sum(-1))
+            np.fill_diagonal(d, np.inf)
+            self.radius = max(1, int(np.median(d.min(axis=1)) / 2))
+        else:
+            self.radius = 2
+        self.agent = agent
+
+        # Dot positions are fixed, so precompute a label map per eye (pixel -> index into that
+        # eye's sampled values, or -1 for background).  show() is then one gather per eye
+        # instead of thousands of cv2.circle calls per frame.
+        r = self.radius
+        dy, dx = np.mgrid[-r:r + 1, -r:r + 1]
+        in_disk = dx ** 2 + dy ** 2 <= r ** 2
+        dx, dy = dx[in_disk], dy[in_disk]
+        self.labels = {}
+        for eye, (_, pts) in self.eyes.items():
+            labels = np.full((eye_size, eye_size), -1, dtype=np.int64)
+            for i, (cx, cy) in enumerate(pts):
+                xs, ys = cx + dx, cy + dy
+                ok = (xs >= 0) & (xs < eye_size) & (ys >= 0) & (ys < eye_size)
+                labels[ys[ok], xs[ok]] = i
+            self.labels[eye] = labels
+
+    _cache: dict = {}
+
+    @classmethod
+    def for_agent(cls, agent: ConnectomeAgent) -> "PhotoreceptorView":
+        """Build once per agent and reuse across episodes (the label maps take ~0.15 s)."""
+        if id(agent) not in cls._cache:
+            cls._cache[id(agent)] = cls(agent)
+        return cls._cache[id(agent)]
+
+    def show(self, x: torch.Tensor) -> None:
+        if cv2 is None: return
+        try:
+            x_np = x[0].detach().float().cpu().numpy()
+            panels = []
+            for eye in ("left", "right"):
+                segments, _ = self.eyes[eye]
+                vals = np.concatenate([
+                    x_np[slice(*self.agent.input_splits[seg])] if seg in self.agent.input_splits
+                    else np.zeros(0) for seg in segments
+                ])
+                # Append the background as the last entry so label -1 maps to it.
+                lut = np.append(np.clip(vals, 0.0, 1.0) * 255.0, self.background).astype(np.uint8)
+                panels.append(lut[self.labels[eye]])
+            sep = np.full((self.eye_size, 4), 255, dtype=np.uint8)
+            cv2.imshow("Agent Input: photoreceptors (Left | Right)", np.hstack([panels[0], sep, panels[1]]))
+            cv2.waitKey(1)
+        except Exception:
+            pass
+
 
 # Filenames every connectome directory uses for the neuron-set CSVs.  They are identical
 # across connectomes (FLYNN, SmallWorldNet, ...), which is what lets them be resolved from
@@ -271,6 +358,7 @@ def rollout_episode(
 
     agent.reset_vision_state()
     teacher.reset()
+    pr_view = PhotoreceptorView.for_agent(agent) if render else None
     h = torch.zeros(1, agent.cell.N, device=device, dtype=dtype)
     done = False
     trunc = False
@@ -287,10 +375,13 @@ def rollout_episode(
             _ = teacher.act(env)
 
         obs_t = obs_to_torch(obs, device=device, dtype=dtype, vision=vision)
-        h, action = agent.step(h, obs_t)
+        # Compute the photoreceptor input once so the display shows exactly what the agent gets.
+        x = agent.obs_to_x(obs_t)
+        h, action = agent.step(h, obs_t, x=x)
         
         if render:
-            maybe_show_cameras(obs)
+            maybe_show_cameras(obs, vision=vision)
+            pr_view.show(x)
 
         # --- Overwrite Neuron Activity AFTER step to clamp values ---
         if overwrite_indices and overwrite_values is not None and (steps % overwrite_interval < overwrite_steps):
@@ -455,10 +546,19 @@ def run_one_configuration(checkpoint, vision, rendermode = None, edge_path = Non
         env.close()
     return save_dir
 
+# Vision condition codes -> [left_eye_enabled, right_eye_enabled] (order used by obs_to_torch).
+VISION_CONDITIONS = {
+    "11": [True, True],    # full vision
+    "10": [True, False],   # left eye only
+    "01": [False, True],   # right eye only
+    "00": [False, False],  # blind
+}
+
+
 def parse_args():
     parser = argparse.ArgumentParser(
         description="Roll out a trained connectome RNN (FLYNN/SmallWorldNet) checkpoint across "
-                     "the 4 vision conditions (full vision, right-eye-only, left-eye-only, blind)."
+                     "the selected vision conditions (full vision, left-eye-only, right-eye-only, blind)."
     )
     parser.add_argument(
         "checkpoint",
@@ -474,6 +574,16 @@ def parse_args():
              "from the same directory. Defaults to shared_config's EDGE_PATH, with a warning "
              "that it may not match the checkpoint.",
     )
+    parser.add_argument(
+        "--vision",
+        nargs="+",
+        choices=list(VISION_CONDITIONS),
+        default=list(VISION_CONDITIONS),
+        help="Vision condition(s) to evaluate, as two digits <left><right> where 1 = eye "
+             "enabled and 0 = eye blind: 11 = full vision, 10 = left eye only, "
+             "01 = right eye only, 00 = blind. Multiple values may be given; defaults to "
+             "all four.",
+    )
     return parser.parse_args()
 
 
@@ -487,10 +597,12 @@ if __name__ == "__main__":
     #     time.sleep(60)
     # time.sleep(60)
     rendermode = "human"
-    dir1 = run_one_configuration(checkpoint, vision=[True, True], rendermode = rendermode, edge_path = edge_path)
-    dir2 = run_one_configuration(checkpoint, vision=[False, True], rendermode = rendermode, edge_path = edge_path)
-    dir3 = run_one_configuration(checkpoint, vision=[True, False], rendermode = rendermode, edge_path = edge_path)
-    dir4 = run_one_configuration(checkpoint, vision=[False, False], rendermode = rendermode, edge_path = edge_path)
+    condition_dirs = {}
+    for code in args.vision:
+        print(f"[main] Vision condition {code} (left, right) = {VISION_CONDITIONS[code]}")
+        condition_dirs[code] = run_one_configuration(
+            checkpoint, vision=VISION_CONDITIONS[code], rendermode=rendermode, edge_path=edge_path,
+        )
 
     # # from analysis_pca_statistics import analysis_pca_cka
     # condition_folders = [(dir1, "Full vision"), (dir2, "Right eye only"), (dir3, "Left eye only"), (dir4, "Total blindness")]

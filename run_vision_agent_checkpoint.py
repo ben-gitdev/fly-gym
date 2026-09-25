@@ -90,16 +90,35 @@ def preprocess_obs_cpu(obs, dtype=np.float32, vision=[True, True]):
         "collision": col,
     }
 
-def maybe_show_cameras(obs):
+def maybe_show_cameras(obs, vision=(True, True)):
+    """Show the two eye cameras, blacking out any eye disabled by `vision` ([left, right])
+    so the window matches what the agent actually receives."""
     if cv2 is None: return
     try:
         left_gray = cv2.cvtColor(obs["cam_left"], cv2.COLOR_RGB2GRAY)
         right_gray = cv2.cvtColor(obs["cam_right"], cv2.COLOR_RGB2GRAY)
+        if not vision[0]:
+            left_gray = np.zeros_like(left_gray)
+        if not vision[1]:
+            right_gray = np.zeros_like(right_gray)
         frame = np.hstack([left_gray, right_gray])
         cv2.imshow("Agent View (Left | Right)", frame)
         cv2.waitKey(1)
     except Exception:
         pass
+
+def maybe_show_agent_input(img, scale=8):
+    """Show the 30x60 (left | right) grayscale image actually fed to the agent, upscaled."""
+    if cv2 is None: return
+    try:
+        frame = cv2.resize(img[0], None, fx=scale, fy=scale, interpolation=cv2.INTER_NEAREST)
+        w = img.shape[-1] // 2 * scale
+        frame[:, w - 1:w + 1] = 255  # separator between eyes
+        cv2.imshow("Agent Input: 30x30 per eye (Left | Right)", frame)
+        cv2.waitKey(1)
+    except Exception:
+        pass
+
 
 def run_episode(env, agent, device, dtype, render=False, render_skip=1,
                 episode_idx=0, save_dir=None, seed=None, vision=None,
@@ -176,10 +195,12 @@ def run_episode(env, agent, device, dtype, render=False, render_skip=1,
         
         if render and steps % render_skip == 0:
             env.render()
-            maybe_show_cameras(obs)
+            maybe_show_cameras(obs, vision=vision)
         
         # CPU preprocessing (matches training pipeline)
         xs_cpu = preprocess_obs_cpu(obs, dtype=np_dtype, vision=vision)
+        if render and steps % render_skip == 0:
+            maybe_show_agent_input(xs_cpu["img"])
 
         # Transfer to GPU
         if use_cuda:
@@ -264,10 +285,20 @@ def _build_agent(model_type: str, device, dtype):
         raise ValueError(f"Unknown model type: {model_type}")
     return agent.to(device=device, dtype=dtype)
 
+# Vision condition codes -> [left_eye_enabled, right_eye_enabled] (order used by preprocess_obs_cpu).
+VISION_CONDITIONS = {
+    "11": [True, True],    # full vision
+    "10": [True, False],   # left eye only
+    "01": [False, True],   # right eye only
+    "00": [False, False],  # blind
+}
+
+
 def parse_args():
     parser = argparse.ArgumentParser(
         description="Run evaluation rollouts for a trained vision-based agent "
-                     "(EfficientNet/MobileNet) checkpoint."
+                     "(EfficientNet/MobileNet) checkpoint across the selected vision conditions "
+                     "(full vision, left-eye-only, right-eye-only, blind)."
     )
     parser.add_argument(
         "checkpoint",
@@ -283,69 +314,40 @@ def parse_args():
         help="Model architecture. Default: auto-detected from the checkpoint filename "
              "(see _detect_model_type).",
     )
+    parser.add_argument(
+        "--vision",
+        nargs="+",
+        choices=list(VISION_CONDITIONS),
+        default=list(VISION_CONDITIONS),
+        help="Vision condition(s) to evaluate, as two digits <left><right> where 1 = eye "
+             "enabled and 0 = eye blind: 11 = full vision, 10 = left eye only, "
+             "01 = right eye only, 00 = blind. Multiple values may be given; defaults to "
+             "all four.",
+    )
     return parser.parse_args()
 
 
-def main():
-    args = parse_args()
+def run_one_configuration(env, agent, device, model_type, vision, episodes, render,
+                          save_internal_state_episodes, internal_state_mode):
+    """Roll out `episodes` episodes under one vision condition.
 
-    checkpoint_path = args.checkpoint
-    if not os.path.exists(checkpoint_path):
-        raise FileNotFoundError(
-            f"Checkpoint not found: {checkpoint_path!r}. Available checkpoints in "
-            f"{CHECKPOINT_DIR}/: {[f for f in os.listdir(CHECKPOINT_DIR) if f.endswith('.pt')]}"
-        )
-    model_type = args.model_type or _detect_model_type(os.path.basename(checkpoint_path))
-    vision = [False, False]
-
-    episodes = 500
-    render = True
-    # Internal State Recording Config
-    save_internal_state_episodes = [53]  # e.g., [1, 5, 10] to save those episodes
-    internal_state_mode = "gru_mlp"  # "none", "gru_mlp", or "all"
-    # ---------------------
-
-    device = get_device()
-    print(f"Using device: {device}")
-    print(f"Checkpoint: {checkpoint_path} (model_type={model_type})")
-
-    # 1. Initialize Environment
-    render_mode = "human" if render else None
-    
-    env = MuJoCoTwoCamEnv(
-        width=ENV_WIDTH,
-        height=ENV_HEIGHT,
-        max_episode_steps=MAX_EPISODE_STEPS,
-        n_obstacles=N_OBSTACLES,
-        arena_half_extent=ARENA_HALF_EXTENT,
-        render_mode=render_mode,
-    )
-    
-    # 2. Initialize Agent
-    print(f"Initializing {model_type} agent...")
-    agent = _build_agent(model_type, device, DTYPE)
-        
-    # 3. Load Checkpoint
-    print(f"Loading checkpoint: {checkpoint_path}")
-    checkpoint = torch.load(checkpoint_path, map_location=device)
-    agent.load_state_dict(checkpoint)
-    agent.eval()
-
-    # 4. Prepare data directory
+    Returns (save_dir, interrupted) where `interrupted` is True if the user hit Ctrl+C.
+    """
+    # Prepare data directory
     timestr = time.strftime("%Y%m%d-%H%M%S")
     save_dir = os.path.join("eval_data", f"vision_{model_type}_{timestr}")
     os.makedirs(save_dir, exist_ok=True)
     print(f"[main] Saving episode data to: {save_dir}")
 
-    # 5. Run Loop
     success_count = 0
     distances = []
     episode_summaries = []
-    
+    interrupted = False
+
     print(f"Running {episodes} episodes...")
-    
+
     render_skip = 1
-    
+
     try:
         # for i in range(52,53):
         for i in range(episodes):
@@ -382,6 +384,7 @@ def main():
             
     except KeyboardInterrupt:
         print("\nInterrupted by user.")
+        interrupted = True
     finally:
         # --- Save Episode Summary CSV ---
         summary_file = os.path.join(save_dir, "episode_summary.csv")
@@ -391,15 +394,74 @@ def main():
             writer.writerows(episode_summaries)
         print(f"[main] Episode summary saved to: {summary_file}")
         # --------------------------------
-        env.close()
-        if render and cv2 is not None:
-             cv2.destroyAllWindows()
-             
-    # 6. Summary
+
+    # Summary
     if len(distances) > 0:
         print("\n--- Summary ---")
         print(f"Success Rate: {success_count}/{len(distances)} ({success_count/len(distances)*100:.1f}%)")
         print(f"Avg Final Distance: {np.mean(distances):.2f}")
+    return save_dir, interrupted
+
+
+def main():
+    args = parse_args()
+
+    checkpoint_path = args.checkpoint
+    if not os.path.exists(checkpoint_path):
+        raise FileNotFoundError(
+            f"Checkpoint not found: {checkpoint_path!r}. Available checkpoints in "
+            f"{CHECKPOINT_DIR}/: {[f for f in os.listdir(CHECKPOINT_DIR) if f.endswith('.pt')]}"
+        )
+    model_type = args.model_type or _detect_model_type(os.path.basename(checkpoint_path))
+
+    episodes = 500
+    render = True
+    # Internal State Recording Config
+    save_internal_state_episodes = None#[53]  # e.g., [1, 5, 10] to save those episodes
+    internal_state_mode = "gru_mlp"  # "none", "gru_mlp", or "all"
+    # ---------------------
+
+    device = get_device()
+    print(f"Using device: {device}")
+    print(f"Checkpoint: {checkpoint_path} (model_type={model_type})")
+
+    # 1. Initialize Environment
+    render_mode = "human" if render else None
+    
+    env = MuJoCoTwoCamEnv(
+        width=ENV_WIDTH,
+        height=ENV_HEIGHT,
+        max_episode_steps=MAX_EPISODE_STEPS,
+        n_obstacles=N_OBSTACLES,
+        arena_half_extent=ARENA_HALF_EXTENT,
+        render_mode=render_mode,
+    )
+    
+    # 2. Initialize Agent
+    print(f"Initializing {model_type} agent...")
+    agent = _build_agent(model_type, device, DTYPE)
+        
+    # 3. Load Checkpoint
+    print(f"Loading checkpoint: {checkpoint_path}")
+    checkpoint = torch.load(checkpoint_path, map_location=device)
+    agent.load_state_dict(checkpoint)
+    agent.eval()
+
+    # 4. Run each requested vision condition
+    condition_dirs = {}
+    try:
+        for code in args.vision:
+            print(f"[main] Vision condition {code} (left, right) = {VISION_CONDITIONS[code]}")
+            condition_dirs[code], interrupted = run_one_configuration(
+                env, agent, device, model_type, VISION_CONDITIONS[code], episodes, render,
+                save_internal_state_episodes, internal_state_mode,
+            )
+            if interrupted:
+                break
+    finally:
+        env.close()
+        if render and cv2 is not None:
+             cv2.destroyAllWindows()
     
 if __name__ == "__main__":
     main()
