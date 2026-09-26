@@ -164,16 +164,11 @@ What's in it and where each file goes:
 - `efficientnet_dagger_final_robust.pt` (21.2MB) / `mobilenet_dagger_final_robust.pt` (16MB) — the
   EfficientNet-B0 / MobileNetV3-Large baselines, trained with camera dropout. MIT.
 
-Each checkpoint above is trained once, on full vision; `run_connectome_rnn_checkpoint.py` and
-`run_vision_agent_checkpoint.py` reproduce all 4 vision-ablation conditions (full / right-eye-only /
+`run_connectome_rnn_checkpoint.py` and
+`run_vision_agent_checkpoint.py` reproduce all 4 vision-ablation conditions found in the paper (full / right-eye-only /
 left-eye-only / blind) from that single checkpoint by masking the input at eval time. 
 Drop checkpoints into `checkpoints/` (create the folder if it doesn't already exist)
-and pass the path straight to the eval scripts, e.g.:
-
-```bash
-python run_connectome_rnn_checkpoint.py checkpoints/connectome_rnn_dagger_princeton_full_vision.pt
-```
-
+and pass the path to the eval scripts. See the Usage section.
 
 ## Usage
 
