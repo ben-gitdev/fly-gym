@@ -228,8 +228,7 @@ speed (velocity command 0.7, about 1.25 m/s). The checkpoint races alongside, ro
 the eval script.
 
 ```bash
-python play_vs_connectome_rnn.py checkpoints/connectome_rnn_dagger_princeton_full_vision.pt \
-    --connectome "connectomes/drosophila adult connectome/connections_princeton.csv"
+python play_vs_connectome_rnn.py checkpoints/connectome_rnn_dagger_princeton_full_vision.pt --connectome "connectomes/drosophila adult connectome/connections_princeton.csv"
 ```
 
 Up/Down drive forward/backward, Left/Right turn, SPACE starts a round, P pauses, R retries the
