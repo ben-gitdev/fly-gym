@@ -51,15 +51,18 @@
   .agent { color: #56a5eb; font-weight: 600; }
   kbd { background: #262930; border: 1px solid #3a3e46; border-radius: 4px; padding: 0 5px; font: 14px ui-monospace, Consolas, monospace; }
   .note { font-size: 14px; color: #8c929e; }
+  .links { margin: 0 0 12px; font-size: 15px; color: #8c929e; }
 </style>
 </head>
 <body>
 <main>
   <h1>Race FLYNN</h1>
+  <p class="links"><a href="https://github.com/ben-gitdev/fly-gym">Code on GitHub</a> &middot;
+  <a href="https://arxiv.org/abs/2607.00025">Paper (arXiv)</a></p>
   <p>FLYNN is a recurrent neural network wired like a fruit fly's brain: every unit is a neuron and every
   connection a synapse from the FlyWire connectome. It was trained to drive a two-wheeled robot to a goal
   around obstacles. Here you drive the same robot through the same arena against it, and you only get what
-  <span class="agent">FLYNN</span> gets.</p>
+  <a class="agent" href="https://github.com/ben-gitdev/fly-gym">FLYNN</a> gets.</p>
 
   <div class="game">
     <canvas id="game" width="1092" height="500" aria-label="Race FLYNN game"></canvas>
@@ -101,7 +104,7 @@
   </ul>
 
   <h2>How it works</h2>
-  <p><span class="agent">FLYNN's</span> side is a recording of the trained network driving in the original
+  <p><a class="agent" href="https://github.com/ben-gitdev/fly-gym">FLYNN's</a> side is a recording of the trained network driving in the original
   MuJoCo physics simulation, so its runs are exactly what the network did. <span class="you">Your</span>
   robot is simulated in your browser, with its motion, collisions and eye view calibrated against that
   simulation. The two robots never meet: each drives its own copy of the arena, so racing a recording
